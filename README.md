@@ -35,7 +35,6 @@ With a standard TeX installation:
 
 ```bash
 pdflatex P_equals_NP_Holographic_Paper.tex
-pdflatex P_equals_NP_Holographic_Paper.tex
 ```
 
 The bibliography is embedded in the final `.tex`; `references.bib` is included as a reusable bibliography source.
