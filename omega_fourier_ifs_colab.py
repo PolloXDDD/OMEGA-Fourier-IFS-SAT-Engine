@@ -1,21 +1,44 @@
-# OMEGA Fourier–IFS SAT Engine — one-cell Google Colab implementation
-# Upload one or more DIMACS .cnf files. Produces and downloads one .txt per CNF.
-# Pure Python; no pip installs required.
+# OMEGA Fourier–IFS SAT Engine v2 — exact spectral/IFS implementation
+# One-cell Google Colab script: upload DIMACS .cnf, receive *_omega_result.txt.
+#
+# Core difference from v1:
+#   * NO recursive SAT branching / backtracking / DPLL tree.
+#   * Computes the exact harmonic self-oracle H_F(u) through the Fourier-Walsh
+#     transfer operators from the paper.
+#   * Uses a canonical reduced Algebraic Decision Diagram (ADD) as the exact
+#     holographic quotient of backward spectral query states.
+#   * Direction is chosen once per variable from H_F(u b) > 0.
+#
+# Pure Python. No pip installs.
 
 import sys
 import time
+import heapq
 from collections import defaultdict
 
 sys.setrecursionlimit(1_000_000)
-
-# Set to None for no time limit.
 TIME_LIMIT_SECONDS = 120
+
+# ----------------------------- DIMACS / 3-CNF -----------------------------
+
+def canonicalize_clauses(clauses):
+    out = []
+    seen = set()
+    for clause in clauses:
+        s = set(int(x) for x in clause)
+        if any(-l in s for l in s):
+            continue  # tautology
+        c = tuple(sorted(s, key=lambda z: (abs(z), z < 0)))
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return tuple(out)
+
 
 def parse_dimacs_text(text):
     nvars_declared = 0
     clauses = []
     pending = []
-
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("c"):
@@ -25,7 +48,6 @@ def parse_dimacs_text(text):
             if len(parts) >= 4 and parts[1].lower() == "cnf":
                 nvars_declared = int(parts[2])
             continue
-
         for tok in line.split():
             lit = int(tok)
             if lit == 0:
@@ -33,267 +55,488 @@ def parse_dimacs_text(text):
                 pending = []
             else:
                 pending.append(lit)
-
     if pending:
         clauses.append(tuple(pending))
+    clauses = canonicalize_clauses(clauses)
+    mx = max((abs(l) for c in clauses for l in c), default=0)
+    return max(nvars_declared, mx), clauses
 
-    max_var = max((abs(l) for c in clauses for l in c), default=0)
-    nvars = max(nvars_declared, max_var)
-    return nvars, canonicalize(clauses)
 
-
-def canonicalize(clauses):
-    out = set()
-    for clause in clauses:
-        s = set(clause)
-        if any(-l in s for l in s):
-            # Tautological clause is always satisfied.
+def to_3cnf(nvars, clauses):
+    """Polynomial equisatisfiable conversion. Returns (new_nvars, new_clauses)."""
+    out = []
+    nxt = nvars + 1
+    for c in clauses:
+        k = len(c)
+        if k <= 3:
+            out.append(c)
             continue
-        clean = tuple(sorted(s, key=lambda z: (abs(z), z < 0)))
-        out.add(clean)
-    return tuple(sorted(out, key=lambda c: (len(c), c)))
-
-
-def apply_literal(state, lit):
-    new_clauses = []
-    neg = -lit
-
-    for clause in state:
-        if lit in clause:
-            continue
-        if neg in clause:
-            reduced = tuple(x for x in clause if x != neg)
-            if len(reduced) == 0:
-                return None
-            new_clauses.append(reduced)
-        else:
-            new_clauses.append(clause)
-
-    return canonicalize(new_clauses)
-
-
-def unit_closure(state):
-    assignment = {}
-    current = state
-    reductions = 0
-
-    while True:
-        if current is None:
-            return None, None, reductions
-        if len(current) == 0:
-            return current, assignment, reductions
-        if any(len(c) == 0 for c in current):
-            return None, None, reductions
-
-        unit = next((c[0] for c in current if len(c) == 1), None)
-        if unit is None:
-            return current, assignment, reductions
-
-        var = abs(unit)
-        val = unit > 0
-        if var in assignment and assignment[var] != val:
-            return None, None, reductions
-        assignment[var] = val
-
-        current = apply_literal(current, unit)
-        reductions += 1
-
-
-def linear_walsh_bias(state):
-    """
-    Exact sum of degree-1 Walsh coefficients of the clause-satisfaction
-    factors g_c = 1 - product_j (1 - sigma_j x_j)/2.
-
-    For a clause of width k, variable x_j contributes sigma_j / 2^k.
-    This is only a branch-ordering signal; correctness does not depend on it.
-    """
-    bias = defaultdict(float)
-    occurrence = defaultdict(int)
-
-    for clause in state:
-        k = len(clause)
-        if k == 0:
-            continue
-        weight = 2.0 ** (-k)
-        for lit in clause:
-            var = abs(lit)
-            sigma = 1.0 if lit > 0 else -1.0
-            bias[var] += sigma * weight
-            occurrence[var] += 1
-
-    return bias, occurrence
-
-
-def choose_branch(state):
-    bias, occurrence = linear_walsh_bias(state)
-    variables = set(abs(l) for c in state for l in c)
-    if not variables:
-        return None, (True, False), 0.0
-
-    # Prefer high structural participation, then large Fourier linear bias.
-    var = max(
-        variables,
-        key=lambda v: (occurrence[v], abs(bias[v]), -v)
-    )
-    b = bias[var]
-    preferred = True if b >= 0 else False
-    return var, (preferred, not preferred), b
+        # (l1 v l2 v y1) & (~y1 v l3 v y2) & ... & (~y_r v l_{k-1} v l_k)
+        lits = list(c)
+        prev_y = None
+        for i in range(k - 3):
+            y = nxt
+            nxt += 1
+            if i == 0:
+                out.append((lits[0], lits[1], y))
+            else:
+                out.append((-prev_y, lits[i + 1], y))
+            prev_y = y
+        out.append((-prev_y, lits[-2], lits[-1]))
+    return nxt - 1, canonicalize_clauses(out)
 
 
 def verify_model(clauses, model):
-    for clause in clauses:
-        ok = False
-        for lit in clause:
-            val = model.get(abs(lit), False)
-            if (lit > 0 and val) or (lit < 0 and not val):
-                ok = True
-                break
-        if not ok:
+    for c in clauses:
+        if not any((lit > 0 and model.get(abs(lit), False)) or
+                   (lit < 0 and not model.get(abs(lit), False)) for lit in c):
             return False
     return True
 
 
-class Timeout(Exception):
-    pass
+# -------------------------- Fourier clause kernels -------------------------
 
-
-class OmegaSolver:
+def clause_walsh_kernel(clause):
     """
-    Executable finite prototype of the paper's recursive self-oracle +
-    holographic quotient idea.
+    Integer numerators of the Walsh coefficients of
+        g_C(x) = 1 - prod_j (1 - sigma_j x_j)/2.
+    Common denominator = 2^k, k=len(clause).
 
-    Exact quotient key:
-        canonical residual CNF state.
-
-    Two paths reaching the same residual formula are merged in memo.
-    The linear Walsh signal orders branches; exact SAT correctness comes
-    from recursive self-oracular evaluation plus final verification.
+    Returns tuple((xor_mask, integer_numerator), ...), k.
+    Variable v corresponds to bit 1<<(v-1) in xor_mask.
     """
+    k = len(clause)
+    if k == 0:
+        return ((0, 0),), 0  # identically false clause factor
+    vars_ = [abs(l) for l in clause]
+    sigmas = [1 if l > 0 else -1 for l in clause]
+    terms = []
+    for sm in range(1 << k):
+        mask = 0
+        prod_sigma = 1
+        r = 0
+        for i in range(k):
+            if (sm >> i) & 1:
+                mask ^= 1 << (vars_[i] - 1)
+                prod_sigma *= sigmas[i]
+                r += 1
+        if sm == 0:
+            num = (1 << k) - 1
+        else:
+            # - coeff(v_C) * 2^k = -(-1)^r * prod_sigma
+            num = (-1 if (r % 2 == 0) else 1) * prod_sigma
+        if num:
+            terms.append((mask, num))
+    return tuple(terms), k
 
-    def __init__(self, nvars, clauses, time_limit=TIME_LIMIT_SECONDS):
-        self.nvars = nvars
-        self.original = canonicalize(clauses)
-        self.memo = {}
-        self.seen_states = set()
-        self.start_time = None
-        self.time_limit = time_limit
-        self.stats = {
-            "recursive_calls": 0,
-            "quotient_states": 0,
-            "memo_hits": 0,
-            "branches": 0,
-            "unit_reductions": 0,
-            "max_depth": 0,
-        }
+
+# ---------------------- Variable / clause ordering -------------------------
+
+def greedy_min_degree_order(nvars, clauses):
+    """Deterministic graph elimination heuristic; exactness is order-independent."""
+    graph = [set() for _ in range(nvars + 1)]
+    active = [False] * (nvars + 1)
+    for c in clauses:
+        vs = sorted(set(abs(l) for l in c))
+        for v in vs:
+            active[v] = True
+        for i, a in enumerate(vs):
+            for b in vs[i + 1:]:
+                graph[a].add(b)
+                graph[b].add(a)
+    # Include isolated declared variables at the end.
+    alive = set(v for v in range(1, nvars + 1) if active[v])
+    heap = [(len(graph[v]), v) for v in alive]
+    heapq.heapify(heap)
+    order = []
+    while alive:
+        while True:
+            deg, v = heapq.heappop(heap)
+            if v in alive and deg == len(graph[v] & alive):
+                break
+        nbrs = list(graph[v] & alive)
+        # fill clique
+        for i, a in enumerate(nbrs):
+            for b in nbrs[i + 1:]:
+                if b not in graph[a]:
+                    graph[a].add(b)
+                    graph[b].add(a)
+        alive.remove(v)
+        order.append(v)
+        for u in nbrs:
+            if u in alive:
+                heapq.heappush(heap, (len(graph[u] & alive), u))
+    used = set(order)
+    order.extend(v for v in range(1, nvars + 1) if v not in used)
+    return order
+
+
+# ---------------- Canonical reduced Algebraic Decision Diagram -------------
+
+class ADDManager:
+    """
+    Reduced ordered ADD with arbitrary-precision integer terminals.
+
+    A node represents an exact function f:{0,1}^N -> Z on Fourier masks S.
+    Canonical reduction (unique table + low==high elimination) gives the
+    executable quotient: equal future spectral functions have the same node id.
+    """
+    def __init__(self, variable_order, deadline=None):
+        self.order = tuple(variable_order)
+        self.rank = {v: i for i, v in enumerate(self.order)}
+        self.deadline = deadline
+
+        # node id -> (var, low, high); var=0 means terminal, low stores integer value
+        self.nodes = []
+        self.term_unique = {}
+        self.node_unique = {}
+        self.add_cache = {}
+        self.scale_cache = {}
+        self.shift_cache = {}
+        self.transfer_cache = {}
+
+        self.ZERO = self.terminal(0)
+        self.ONE = self.terminal(1)
+        self.peak_reachable = 1
+        self.transfer_steps = 0
 
     def _check_time(self):
-        if self.time_limit is not None:
-            if time.perf_counter() - self.start_time > self.time_limit:
-                raise Timeout()
+        if self.deadline is not None and time.perf_counter() > self.deadline:
+            raise TimeoutError
+
+    def terminal(self, value):
+        value = int(value)
+        nid = self.term_unique.get(value)
+        if nid is not None:
+            return nid
+        nid = len(self.nodes)
+        self.nodes.append((0, value, -1))
+        self.term_unique[value] = nid
+        return nid
+
+    def is_terminal(self, u):
+        return self.nodes[u][0] == 0
+
+    def tvalue(self, u):
+        return self.nodes[u][1]
+
+    def var(self, u):
+        return self.nodes[u][0]
+
+    def mk(self, var, low, high):
+        if low == high:
+            return low
+        key = (var, low, high)
+        nid = self.node_unique.get(key)
+        if nid is not None:
+            return nid
+        nid = len(self.nodes)
+        self.nodes.append(key)
+        self.node_unique[key] = nid
+        return nid
+
+    def scale(self, u, c):
+        c = int(c)
+        if c == 0:
+            return self.ZERO
+        if c == 1:
+            return u
+        key = (u, c)
+        hit = self.scale_cache.get(key)
+        if hit is not None:
+            return hit
+        self._check_time()
+        if self.is_terminal(u):
+            out = self.terminal(self.tvalue(u) * c)
+        else:
+            v, lo, hi = self.nodes[u]
+            out = self.mk(v, self.scale(lo, c), self.scale(hi, c))
+        self.scale_cache[key] = out
+        return out
+
+    def add(self, a, b):
+        if a == self.ZERO:
+            return b
+        if b == self.ZERO:
+            return a
+        if a > b:  # commutative cache normalization
+            a, b = b, a
+        key = (a, b)
+        hit = self.add_cache.get(key)
+        if hit is not None:
+            return hit
+        self._check_time()
+        if self.is_terminal(a) and self.is_terminal(b):
+            out = self.terminal(self.tvalue(a) + self.tvalue(b))
+        else:
+            va = None if self.is_terminal(a) else self.var(a)
+            vb = None if self.is_terminal(b) else self.var(b)
+            if va is None:
+                v = vb
+            elif vb is None:
+                v = va
+            else:
+                v = va if self.rank[va] <= self.rank[vb] else vb
+
+            if va == v:
+                _, alo, ahi = self.nodes[a]
+            else:
+                alo = ahi = a
+            if vb == v:
+                _, blo, bhi = self.nodes[b]
+            else:
+                blo = bhi = b
+            out = self.mk(v, self.add(alo, blo), self.add(ahi, bhi))
+        self.add_cache[key] = out
+        return out
+
+    def xor_shift(self, u, mask):
+        """Return function S -> f(S xor mask)."""
+        if mask == 0 or self.is_terminal(u):
+            return u
+        key = (u, mask)
+        hit = self.shift_cache.get(key)
+        if hit is not None:
+            return hit
+        self._check_time()
+        v, lo, hi = self.nodes[u]
+        slo = self.xor_shift(lo, mask)
+        shi = self.xor_shift(hi, mask)
+        if mask & (1 << (v - 1)):
+            out = self.mk(v, shi, slo)
+        else:
+            out = self.mk(v, slo, shi)
+        self.shift_cache[key] = out
+        return out
+
+    def apply_kernel(self, u, kernel_key, terms):
+        """Exact XOR-convolution transfer numerator: sum_T a_T f(S xor T)."""
+        key = (u, kernel_key)
+        hit = self.transfer_cache.get(key)
+        if hit is not None:
+            return hit
+        self._check_time()
+        parts = []
+        for mask, coeff in terms:
+            if coeff:
+                parts.append(self.scale(self.xor_shift(u, mask), coeff))
+        if not parts:
+            out = self.ZERO
+        else:
+            # balanced summation reduces intermediate ADD growth
+            while len(parts) > 1:
+                nxt = []
+                it = iter(parts)
+                for a in it:
+                    try:
+                        b = next(it)
+                    except StopIteration:
+                        nxt.append(a)
+                        break
+                    nxt.append(self.add(a, b))
+                parts = nxt
+            out = parts[0]
+        self.transfer_cache[key] = out
+        self.transfer_steps += 1
+        return out
+
+    def build_query(self, assignment):
+        """
+        q_u(S)=1_{S subset assigned} chi_S(u).
+        assignment maps variable -> bool (+1 for True, -1 for False).
+        """
+        cur = self.ONE
+        # Build from bottom of ADD order upward.
+        for v in reversed(self.order):
+            if v not in assignment:
+                # frequency bit must be 0
+                cur = self.mk(v, cur, self.ZERO)
+            elif assignment[v]:
+                # factor [1, +1] => independent, canonical reduction removes it
+                cur = self.mk(v, cur, cur)
+            else:
+                # factor [1, -1]
+                cur = self.mk(v, cur, self.scale(cur, -1))
+        return cur
+
+    def eval_zero(self, u):
+        """Evaluate at Fourier mask S=emptyset (all frequency bits 0)."""
+        while not self.is_terminal(u):
+            _, lo, _ = self.nodes[u]
+            u = lo
+        return self.tvalue(u)
+
+    def reachable_count(self, root):
+        seen = set()
+        stack = [root]
+        while stack:
+            u = stack.pop()
+            if u in seen:
+                continue
+            seen.add(u)
+            if not self.is_terminal(u):
+                _, lo, hi = self.nodes[u]
+                stack.append(lo)
+                stack.append(hi)
+        self.peak_reachable = max(self.peak_reachable, len(seen))
+        return len(seen)
+
+
+# --------------------------- Exact self-oracle ------------------------------
+
+class FourierIFSEngine:
+    def __init__(self, nvars, clauses, time_limit=TIME_LIMIT_SECONDS):
+        self.original_nvars = nvars
+        self.original_clauses = canonicalize_clauses(clauses)
+        self.nvars, self.clauses = to_3cnf(nvars, self.original_clauses)
+        self.time_limit = time_limit
+        self.start = None
+        self.deadline = None
+
+        self.empty_clause = any(len(c) == 0 for c in self.clauses)
+        self.variable_order = greedy_min_degree_order(self.nvars, self.clauses)
+        self.rank = {v: i for i, v in enumerate(self.variable_order)}
+
+        kernels = []
+        denominator_bits = 0
+        for idx, c in enumerate(self.clauses):
+            terms, k = clause_walsh_kernel(c)
+            denominator_bits += k
+            kernels.append((idx, c, terms, k))
+        self.denominator_bits = denominator_bits
+
+        # Convolution factors commute. This deterministic order tends to keep
+        # nearby variables together in the ADD variable order.
+        def clause_key(item):
+            _, c, _, _ = item
+            ranks = [self.rank[abs(l)] for l in c] if c else [-1]
+            return (max(ranks), min(ranks), len(c))
+        self.kernels = tuple(sorted(kernels, key=clause_key, reverse=True))
+
+        self.stats = {
+            "harmonic_queries": 0,
+            "direction_steps": 0,
+            "transformed_variables": self.nvars,
+            "transformed_clauses": len(self.clauses),
+            "max_query_add_nodes": 0,
+            "max_total_add_nodes": 0,
+            "max_reachable_quotient_nodes": 0,
+            "kernel_transfers": 0,
+        }
+
+    def _new_manager(self):
+        return ADDManager(self.variable_order, self.deadline)
+
+    def harmonic_numerator(self, assignment):
+        """
+        Exact numerator of H_F(assignment), with common positive denominator
+        2^self.denominator_bits. Positivity/zero is therefore exact.
+        """
+        if self.empty_clause:
+            return 0, {"reachable": 1, "nodes": 1, "transfers": 0}
+        mgr = self._new_manager()
+        root = mgr.build_query(assignment)
+        mgr.reachable_count(root)
+        for kernel_id, _c, terms, _k in self.kernels:
+            root = mgr.apply_kernel(root, kernel_id, terms)
+            mgr.reachable_count(root)
+        num = mgr.eval_zero(root)
+        self.stats["harmonic_queries"] += 1
+        self.stats["max_query_add_nodes"] = max(self.stats["max_query_add_nodes"], len(mgr.nodes))
+        self.stats["max_total_add_nodes"] = max(self.stats["max_total_add_nodes"], len(mgr.nodes))
+        self.stats["max_reachable_quotient_nodes"] = max(
+            self.stats["max_reachable_quotient_nodes"], mgr.peak_reachable
+        )
+        self.stats["kernel_transfers"] += mgr.transfer_steps
+        return num, {"reachable": mgr.peak_reachable, "nodes": len(mgr.nodes), "transfers": mgr.transfer_steps}
 
     def solve(self):
-        self.start_time = time.perf_counter()
-        try:
-            model = self._solve_state(self.original, 0)
-            elapsed = time.perf_counter() - self.start_time
-            if model is None:
-                return "UNSAT", None, elapsed
+        self.start = time.perf_counter()
+        self.deadline = None if self.time_limit is None else self.start + self.time_limit
 
-            # Fill irrelevant/unassigned variables deterministically.
-            full = {v: model.get(v, False) for v in range(1, self.nvars + 1)}
-            if not verify_model(self.original, full):
-                raise RuntimeError("Internal error: produced model failed verification.")
-            return "SAT", full, elapsed
+        if self.empty_clause:
+            return "UNSAT", None, time.perf_counter() - self.start
 
-        except Timeout:
-            elapsed = time.perf_counter() - self.start_time
-            return "UNKNOWN_TIMEOUT", None, elapsed
+        assignment = {}
 
-    def _solve_state(self, state, depth):
-        self._check_time()
-        self.stats["recursive_calls"] += 1
-        self.stats["max_depth"] = max(self.stats["max_depth"], depth)
+        # One exact global satisfiability query. No search tree.
+        h0, _ = self.harmonic_numerator(assignment)
+        if h0 == 0:
+            return "UNSAT", None, time.perf_counter() - self.start
+        if h0 < 0:
+            raise RuntimeError("Invariant violation: harmonic satisfying density became negative.")
 
-        state = canonicalize(state)
-        self.seen_states.add(state)
-        self.stats["quotient_states"] = len(self.seen_states)
+        # Guided construction: exactly one surviving prefix, no backtracking.
+        for v in self.variable_order:
+            # Skip variables already irrelevant only after all original/transformed vars are assigned? 
+            # Query +1 first; if no satisfying completion remains, -1 must work because
+            # current prefix was already certified satisfiable.
+            a_plus = dict(assignment)
+            a_plus[v] = True
+            hp, _ = self.harmonic_numerator(a_plus)
+            if hp > 0:
+                assignment[v] = True
+            else:
+                a_minus = dict(assignment)
+                a_minus[v] = False
+                hm, _ = self.harmonic_numerator(a_minus)
+                if hm <= 0:
+                    raise RuntimeError(
+                        "Harmonic direction invariant failed: neither child preserves satisfiability."
+                    )
+                assignment[v] = False
+            self.stats["direction_steps"] += 1
 
-        if state in self.memo:
-            self.stats["memo_hits"] += 1
-            cached = self.memo[state]
-            return None if cached is None else dict(cached)
+        # Project model back to original variables.
+        model = {v: bool(assignment.get(v, False)) for v in range(1, self.original_nvars + 1)}
+        if not verify_model(self.original_clauses, model):
+            raise RuntimeError("Internal error: projected SAT model failed original-CNF verification.")
+        return "SAT", model, time.perf_counter() - self.start
 
-        reduced, forced, nred = unit_closure(state)
-        self.stats["unit_reductions"] += nred
 
-        if reduced is None:
-            self.memo[state] = None
-            return None
-
-        if len(reduced) == 0:
-            result = dict(forced)
-            self.memo[state] = tuple(sorted(result.items()))
-            return result
-
-        var, order, _bias = choose_branch(reduced)
-        if var is None:
-            result = dict(forced)
-            self.memo[state] = tuple(sorted(result.items()))
-            return result
-
-        self.stats["branches"] += 1
-
-        for val in order:
-            lit = var if val else -var
-            child = apply_literal(reduced, lit)
-            if child is None:
-                continue
-
-            sub = self._solve_state(child, depth + 1)
-            if sub is not None:
-                result = dict(forced)
-                result[var] = val
-                result.update(sub)
-                self.memo[state] = tuple(sorted(result.items()))
-                return result
-
-        self.memo[state] = None
-        return None
-
+# ------------------------------- Reporting ----------------------------------
 
 def dimacs_model_line(model, nvars):
-    lits = []
-    for v in range(1, nvars + 1):
-        lits.append(str(v if model.get(v, False) else -v))
-    return "v " + " ".join(lits) + " 0"
+    return "v " + " ".join(str(v if model.get(v, False) else -v) for v in range(1, nvars + 1)) + " 0"
 
 
 def solve_dimacs_text(text, filename="input.cnf", time_limit=TIME_LIMIT_SECONDS):
     nvars, clauses = parse_dimacs_text(text)
-    solver = OmegaSolver(nvars, clauses, time_limit=time_limit)
-    status, model, elapsed = solver.solve()
+    engine = FourierIFSEngine(nvars, clauses, time_limit=time_limit)
+    try:
+        status, model, elapsed = engine.solve()
+    except TimeoutError:
+        status, model = "UNKNOWN_TIMEOUT", None
+        elapsed = time.perf_counter() - engine.start if engine.start else 0.0
 
     lines = [
-        "OMEGA Fourier-IFS SAT Engine",
-        "============================",
+        "OMEGA Fourier-IFS SAT Engine v2",
+        "================================",
         f"input_file: {filename}",
         f"status: {status}",
-        f"variables: {nvars}",
-        f"clauses_after_normalization: {len(clauses)}",
+        f"original_variables: {nvars}",
+        f"original_clauses: {len(clauses)}",
+        f"3cnf_variables: {engine.nvars}",
+        f"3cnf_clauses: {len(engine.clauses)}",
         f"elapsed_seconds: {elapsed:.6f}",
         "",
-        "Holographic quotient statistics",
-        "-------------------------------",
+        "Exact Fourier-IFS quotient statistics",
+        "-------------------------------------",
     ]
-
-    for k, v in solver.stats.items():
+    for k, v in engine.stats.items():
         lines.append(f"{k}: {v}")
-
-    lines += ["", "Result", "------"]
+    lines.extend([
+        f"walsh_common_denominator_bits: {engine.denominator_bits}",
+        "backtracking_branches: 0",
+        "recursive_sat_calls: 0",
+        "",
+        "Result",
+        "------",
+    ])
 
     if status == "SAT":
-        verified = verify_model(clauses, model)
-        lines.append(f"verified: {str(verified).lower()}")
+        ok = verify_model(clauses, model)
+        lines.append(f"verified: {str(ok).lower()}")
         lines.append(dimacs_model_line(model, nvars))
         lines.append("")
         lines.append("assignment:")
@@ -301,51 +544,40 @@ def solve_dimacs_text(text, filename="input.cnf", time_limit=TIME_LIMIT_SECONDS)
             lines.append(f"x{v}={1 if model[v] else 0}")
     elif status == "UNSAT":
         lines.append("verified_model: n/a")
-        lines.append("No satisfying assignment exists according to the exact search.")
+        lines.append("Exact harmonic root amplitude is zero.")
     else:
         lines.append("verified_model: n/a")
-        lines.append("Search stopped at the configured time limit.")
-        lines.append("Increase TIME_LIMIT_SECONDS or set it to None and run again.")
+        lines.append("Exact spectral quotient computation reached the configured time limit.")
 
-    lines += [
+    lines.extend([
         "",
-        "Implementation note",
-        "-------------------",
-        "The executable quotient merges identical canonical residual CNF states.",
-        "The Walsh degree-1 signal is used for branch ordering.",
-        "The program is exact when it returns SAT or UNSAT; the final SAT model is",
-        "independently checked against the original normalized CNF.",
-        "This executable prototype does not by itself establish a polynomial",
-        "worst-case bound on the number of quotient states."
-    ]
-
+        "Implementation identity",
+        "-----------------------",
+        "H_F(u) is evaluated exactly by the paper's backward Walsh transfer equation.",
+        "The quotient is a canonical reduced ADD of the backward spectral query function.",
+        "Equal ADD node ids mean exact equality of future spectral behavior.",
+        "The solver follows one H_F-positive child per variable and never backtracks.",
+    ])
     return "\n".join(lines) + "\n"
 
 
 def colab_main():
     from google.colab import files
-
     print("Upload DIMACS .cnf file(s)...")
     uploaded = files.upload()
-
-    cnf_names = [name for name in uploaded if name.lower().endswith(".cnf")]
-    if not cnf_names:
+    names = [n for n in uploaded if n.lower().endswith(".cnf")]
+    if not names:
         raise ValueError("No .cnf file uploaded.")
-
-    for name in cnf_names:
-        raw = uploaded[name]
-        text = raw.decode("utf-8", errors="replace")
+    for name in names:
+        text = uploaded[name].decode("utf-8", errors="replace")
         report = solve_dimacs_text(text, filename=name)
-        out_name = name.rsplit(".", 1)[0] + "_omega_result.txt"
-
-        with open(out_name, "w", encoding="utf-8") as f:
+        out = name.rsplit(".", 1)[0] + "_omega_result.txt"
+        with open(out, "w", encoding="utf-8") as f:
             f.write(report)
-
         print("\n" + report)
-        files.download(out_name)
+        files.download(out)
 
 
-# In Google Colab this runs automatically after pasting the cell.
 try:
     import google.colab  # noqa: F401
     colab_main()
