@@ -1,1 +1,6927 @@
-The requested file reference is not currently visible. Use files.search or files.list to rediscover the file, then retry with a returned ref_id or file_id.
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{cite}
+\usepackage{hyperref}
+
+\definecolor{LinkBlue}{RGB}{0,70,150}
+\definecolor{CiteViolet}{RGB}{110,35,140}
+\definecolor{UrlBlue}{RGB}{0,90,170}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=LinkBlue,
+  citecolor=CiteViolet,
+  urlcolor=UrlBlue,
+  pdfborder={0 0 0},
+  pdftitle={Holographic Self-Oracularization for Boolean Satisfiability},
+  pdfauthor={Kaoru Aguilera Katayama}
+}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  showstringspaces=false,
+  tabsize=4
+}
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{conjecture}[theorem]{Conjecture}
+\newtheorem{principle}[theorem]{Principle}
+
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+
+\title{Holographic Self-Oracularization for Boolean Satisfiability:\\A Fourier--IFS Framework for the P versus NP Problem}
+\author{Kaoru Aguilera Katayama}
+\date{September 22, 2026}
+
+\begin{document}
+\maketitle
+
+\begin{center}
+\textbf{Official repository:}\quad
+\href{https://github.com/PolloXDDD/OMEGA-Fourier-IFS-SAT-Engine}{\texttt{github.com/PolloXDDD/OMEGA-Fourier-IFS-SAT-Engine}}
+\end{center}
+
+
+\begin{abstract}
+This manuscript develops an explicit framework for Boolean satisfiability through recursive self-oracularization.  The construction begins by viewing NP witness search as a problem of missing directional information, introduces a meta-search architecture in which oracle requests are recursively represented inside the same problem class, and gives a finite ``holographic'' closure of the resulting recursion.  Iterated function systems provide the finite self-similar generator, while Fourier--Walsh transfer operators provide a global spectral representation.  For 3-SAT, the paper derives an exact harmonic oracle field whose positivity characterizes whether a partial assignment has a satisfying completion, gives a clause-local Walsh transfer circuit, and describes a weighted IFS path representation of the resulting spectral expansion.  A reflective layer applies the same compression architecture to proof obligations about the quotient construction.  The resulting closure theorem isolates the exact structural hypotheses under which the construction decides 3-SAT in deterministic polynomial time and therefore yields $\mathbf{P}=\mathbf{NP}$.  The paper concludes with an executable Google Colab implementation that reads DIMACS CNF files and returns verified SAT assignments or UNSAT results.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section*{Roadmap}
+\addcontentsline{toc}{section}{Roadmap}
+The argument is organized as a sequence of increasingly concrete constructions.  Sections~\ref{sec:blind-witness-search}--\ref{sec:np-native-constraint} formulate the directional-information viewpoint and the NP-native design constraint.  Section~\ref{sec:phi-omega} introduces the global property \(\Omega\).  Sections~\ref{sec:meta-binary-search}--\ref{sec:fourier-holography} develop recursive self-oracularization, IFS closure, and Fourier holography.  Section~\ref{sec:concrete-omega-engine} gives the concrete harmonic--spectral engine, Section~\ref{sec:reflective-closure} introduces reflective certification, and Section~\ref{sec:colab-implementation} provides executable code.
+
+
+\section{NP-Complete Problems as Blind Witness Search}
+\label{sec:blind-witness-search}
+
+\subsection{Motivating Perspective}
+
+The standard definition of NP-completeness is formulated in terms of
+polynomial-time verification and polynomial-time reductions~\cite{Cook1971,Karp1972}.  We use the standard formulation of the $\mathbf{P}$ versus $\mathbf{NP}$ Millennium Prize Problem given in Cook's official Clay Mathematics Institute problem description~\cite{CookClayPvsNP}.  In this work,
+we introduce a \emph{conceptual viewpoint} intended to isolate the
+source of difficulty that will be used throughout the construction.
+
+The central intuition is simple: some search problems are \emph{guided},
+whereas others are \emph{blind}.  A guided search receives directional
+information after each partial choice.  A blind search may efficiently verify
+a complete candidate, but receives no immediate indication of how an
+incorrect candidate should be modified in order to approach a valid one.
+
+A canonical example of guided search is binary search.  Suppose that an
+unknown integer \(z\) lies in an ordered interval
+\[
+    \{0,1,\dots,N-1\}.
+\]
+If an oracle answers whether a query \(q\) satisfies \(q<z\), \(q=z\), or
+\(q>z\), then every query reveals which half of the remaining search space may
+be discarded.  The search is therefore not merely a sequence of guesses: it
+is a sequence of guesses equipped with \emph{directional information}.  The
+number of required queries is
+\[
+    O(\log N).
+\]
+
+By contrast, suppose that the only available oracle answers
+\[
+    \mathsf{Eq}_z(q)
+    =
+    \begin{cases}
+        1, & q=z,\\
+        0, & q\neq z.
+    \end{cases}
+\]
+A negative answer does not indicate whether \(q\) is too large, too small, or
+otherwise structurally close to \(z\).  The same search space has become
+\emph{blind}.
+
+\subsection{Polynomial Verification Relations}
+
+Let \(L\in \mathbf{NP}\).  Then there exists a polynomial \(p\) and a
+polynomial-time verifier
+\[
+    V(x,w)\in\{0,1\}
+\]
+such that
+\[
+    x\in L
+    \iff
+    \exists w\in\{0,1\}^{p(|x|)}
+    \text{ such that } V(x,w)=1.
+\]
+
+For a fixed instance \(x\), define the acceptance function
+\[
+    A_x(w):=V(x,w).
+\]
+The ordinary NP verifier therefore induces a Boolean landscape over the
+witness space
+\[
+    \{0,1\}^{m},
+    \qquad
+    m=p(|x|),
+\]
+whose accepting points are precisely the valid witnesses.
+
+The verifier answers the question
+
+\[
+    \text{``Is this complete candidate a valid witness?''}
+\]
+
+but, in general, the single bit \(A_x(w)=0\) does not by itself answer
+
+\[
+    \text{``Which part of }w\text{ should be changed?''}
+\]
+
+or
+
+\[
+    \text{``In which direction is a valid witness located?''}
+\]
+
+This motivates the following model.
+
+\subsection{Blind Witness Search}
+
+\begin{definition}[Blind Witness Search]
+\label{def:blind-witness-search}
+Let \(V(x,w)\) be a polynomial-time verifier and let
+\(m=p(|x|)\) be the witness length.  The \emph{blind witness search problem}
+associated with \(V\) is the task of finding
+\[
+    w^\star\in\{0,1\}^{m}
+\]
+such that
+\[
+    V(x,w^\star)=1,
+\]
+when the search procedure receives only the accept/reject information
+generated by complete candidate witnesses and no additional directional
+oracle.
+\end{definition}
+
+The word \emph{blind} does not mean that the instance \(x\) is hidden.
+Rather, it refers specifically to the absence of a guaranteed
+\emph{directional signal in witness space}.  The algorithm may inspect the
+entire input instance and exploit any available structure; what is absent is
+an oracle that directly identifies which branch of the witness space still
+contains a solution.
+
+\subsection{Guided Witness Search}
+
+To make the contrast precise, define a prefix-extension oracle.
+
+\begin{definition}[Prefix-Extension Oracle]
+\label{def:prefix-extension-oracle}
+For a fixed instance \(x\), let
+\[
+    E_x(u)=1
+\]
+if and only if the bit string \(u\) is a prefix of at least one valid witness,
+that is,
+\[
+    E_x(u)=1
+    \iff
+    \exists v\in\{0,1\}^{m-|u|}
+    \text{ such that }
+    V(x,uv)=1.
+\]
+\end{definition}
+
+The oracle \(E_x\) converts blind search into guided search.
+
+\begin{proposition}[Witness Recovery from Directional Information]
+\label{prop:guided-recovery}
+Assume access to \(E_x\), and suppose that at least one valid witness exists.
+Then a valid witness can be recovered using at most \(m\) adaptive extension
+queries.
+\end{proposition}
+
+\begin{proof}
+Begin with the empty prefix \(u=\varepsilon\).  At each position, query
+\(E_x(u0)\).  If
+\[
+    E_x(u0)=1,
+\]
+replace \(u\) by \(u0\).  Otherwise replace \(u\) by \(u1\).  Since the current
+prefix is maintained so that it extends to at least one valid witness, one of
+the two extensions must remain valid.  Repeating this process for all \(m\)
+positions produces a string \(w\in\{0,1\}^{m}\) satisfying
+\[
+    V(x,w)=1.
+\]
+Therefore the witness is recovered in at most \(m\) guided steps.
+\end{proof}
+
+This proposition captures the essential analogy with binary search:
+polynomially many decisions suffice once every decision reveals which region
+of the remaining search space still contains a solution.
+
+\subsection{The Blindness Gap}
+
+The distinction may be summarized as follows:
+\[
+\boxed{
+\begin{array}{c}
+\text{Verification oracle:}\\
+w\longmapsto V(x,w)\in\{0,1\}
+\end{array}
+}
+\qquad\text{versus}\qquad
+\boxed{
+\begin{array}{c}
+\text{Directional oracle:}\\
+u\longmapsto E_x(u)\in\{0,1\}.
+\end{array}
+}
+\]
+
+The first oracle recognizes a successful endpoint.  The second oracle guides
+the construction of that endpoint.
+
+In a purely black-box setting, the distinction is exponential.  If
+\(A_x:\{0,1\}^{m}\to\{0,1\}\) is treated as an arbitrary Boolean oracle having
+a unique accepting point, then a deterministic algorithm may require
+\(2^{m}\) queries in the worst case to identify that point: every rejected
+candidate eliminates only itself.  With the prefix-extension oracle, the same
+witness can be recovered in \(m\) steps.
+
+Thus the exponential difficulty of blind search can be viewed as the cost of
+the missing directional information.
+
+\subsection{NP-Complete Problems from the Blind-Search Perspective}
+
+We therefore adopt the following perspective throughout this work:
+
+\begin{quote}
+An NP-complete problem may be viewed as a polynomially verifiable search
+problem for which no general polynomial-time directional mechanism is known.
+\end{quote}
+
+This sentence is not intended to replace the standard formal definition of
+NP-completeness.  Rather, it identifies the structural feature targeted by
+the construction developed in the later sections.
+
+For SAT, for example, a truth assignment
+\[
+    a\in\{0,1\}^{n}
+\]
+can be checked in polynomial time.  If the assignment fails, ordinary
+verification establishes only that this particular assignment does not
+satisfy the formula.  A hypothetical directional mechanism would instead
+extract enough information from the formula and the current partial
+assignment to determine which region of assignment space can still contain a
+satisfying assignment.
+
+The central objective of the present approach is therefore not to accelerate
+brute-force verification.  It is to remove the blindness.
+
+\subsection{The Directionalization Principle}
+
+This motivates the first principle of the construction.
+
+\begin{principle}[Directionalization Principle]
+\label{principle:directionalization}
+Given a polynomial-time verifier \(V(x,w)\), seek a polynomial-time computable
+signal
+\[
+    D(x,u)
+\]
+defined on partial witnesses \(u\), such that \(D\) contains sufficient
+information to select an extension of \(u\) that preserves the existence of a
+valid completion whenever such a completion exists.
+\end{principle}
+
+If such a signal can be computed in polynomial time for an NP-complete
+problem, and if it can be iterated over only polynomially many witness
+positions, then blind witness search is transformed into guided witness
+construction.
+
+The remainder of this work develops a candidate mechanism for performing
+precisely this transformation.
+
+
+\section{Levin Universal Search as an NP-Complete Meta-Search Problem}
+\label{sec:levin-meta-search}
+
+\subsection{The Existence--Discovery Separation}
+
+The second structural principle of this work concerns a distinction between
+the \emph{existence} of an algorithm and the \emph{discovery} of that
+algorithm.
+
+For any fixed finite SAT instance \(F\), there exists a finite program that
+correctly resolves that instance.  Indeed, because the instance is fixed, a
+program may simply hard-code either a satisfying assignment, when one exists,
+or the answer \textsc{unsat}, when the formula is unsatisfiable.
+
+Consequently, the fundamental difficulty for a specific instance is not the
+abstract existence of some correct finite program.  The difficulty is to
+\emph{identify} a useful program without already knowing the answer that the
+program is intended to compute.
+
+This observation is closely related to Levin's universal search~\cite{Levin1973}.  Universal
+search systematically enumerates candidate programs, allocates computational
+resources among them, and verifies candidate outputs whenever verification is
+efficient.
+
+Thus, whenever a short and fast correct algorithm exists, universal search
+will eventually discover and execute it, up to the overhead imposed by its
+universal scheduling procedure.
+
+\subsection{Levin Universal Search}
+
+Let \(U(p,x)\) denote a fixed universal machine executing program \(p\) on
+input \(x\).  Informally, Levin search considers programs \(p\) in increasing
+description length and simulates them with a resource allocation weighted
+approximately by
+\[
+    2^{-|p|}.
+\]
+
+If a candidate program outputs a witness \(w\), a polynomial-time verifier
+tests whether the witness is valid.
+
+For SAT, the verification predicate is
+\[
+    V_{\mathrm{SAT}}(F,a)=1
+    \iff
+    a \models F,
+\]
+where \(F\) is a Boolean formula and \(a\) is a truth assignment.
+
+If there exists a program \(p^\star\) that outputs a satisfying assignment in
+time \(T\), then universal search eventually simulates \(p^\star\) for enough
+steps to reproduce that output.  The search cost is controlled by both the
+runtime \(T\) and the description length \(|p^\star|\).
+
+The crucial point is that the universal search mechanism does not initially
+know which candidate program is the useful one.
+
+\subsection{A Decision Version of Levin Program Search}
+
+Universal search itself is an algorithmic procedure rather than a decision
+language.  To study its complexity in the language of NP-completeness, we
+introduce the following bounded decision problem.
+
+\begin{definition}[Bounded Levin--SAT Program Existence]
+\label{def:bounded-levin-sat}
+An instance of \textsc{BLSP} consists of
+\[
+    (F,k,t),
+\]
+where \(F\) is a Boolean formula, \(k\) is a program-length bound, and \(t\)
+is a computation-time bound.  The question is whether there exists a program
+\(p\) satisfying
+\[
+    |p|\leq k
+\]
+such that the universal machine \(U(p,F)\) halts within at most \(t\) steps
+and outputs an assignment \(a\) satisfying
+\[
+    a\models F.
+\]
+
+The bounds \(k\) and \(t\) are represented so that the permitted simulation
+is polynomially bounded in the total input size; equivalently, one may take
+\(t\) in unary or restrict attention to a polynomially bounded \(t\).
+\end{definition}
+
+The problem asks a meta-level question:
+
+\[
+\boxed{\begin{gathered}
+\text{Does there exist a sufficiently short and sufficiently fast program}\\
+\text{that solves this SAT instance?}
+\end{gathered}}
+\]
+
+This formalizes the intuition that the useful solver may already exist inside
+the universal program space, while the computational task is to locate it.
+
+\subsection{Membership in NP}
+
+\begin{theorem}
+\label{thm:blsp-in-np}
+\textsc{BLSP} belongs to \(\mathbf{NP}\).
+\end{theorem}
+
+\begin{proof}
+A certificate consists of a candidate program \(p\).
+
+The verifier first checks that
+\[
+    |p|\leq k.
+\]
+It then simulates
+\[
+    U(p,F)
+\]
+for at most \(t\) steps.  If the program halts and outputs an assignment
+\(a\), the verifier checks in polynomial time whether
+\[
+    a\models F.
+\]
+
+Because the simulation is bounded by \(t\), and \(t\) is polynomially bounded
+by the encoded input size, the entire verification procedure runs in
+polynomial time.  Therefore
+\[
+    \textsc{BLSP}\in\mathbf{NP}.
+\]
+\end{proof}
+
+This produces the characteristic asymmetry:
+
+\[
+\boxed{\begin{gathered}
+\text{finding the successful program may be difficult,}\\
+\text{while checking a proposed successful program is easy.}
+\end{gathered}}
+\]
+
+\subsection{NP-Hardness}
+
+We now show that the bounded Levin program-existence problem is at least as
+hard as SAT.
+
+\begin{theorem}
+\label{thm:blsp-np-hard}
+\textsc{BLSP} is NP-hard.
+\end{theorem}
+
+\begin{proof}
+We give a polynomial-time many-one reduction from \textsc{SAT}.
+
+Let \(F\) be an arbitrary Boolean formula over \(n\) variables.  Construct the
+\textsc{BLSP} instance
+\[
+    (F,k(n),t(n)),
+\]
+where
+\[
+    k(n)=n+c
+\]
+for a machine-dependent constant \(c\), and
+\[
+    t(n)=q(n)
+\]
+for a polynomial \(q\) sufficiently large to allow a program to print an
+\(n\)-bit assignment.
+
+If \(F\) is satisfiable, let
+\[
+    a\in\{0,1\}^{n}
+\]
+be any satisfying assignment.  There exists a program \(p_a\) consisting of
+a fixed output routine together with the hard-coded string \(a\).  Hence
+\[
+    |p_a|\leq n+c=k(n),
+\]
+and \(p_a\) outputs \(a\) within \(q(n)\) steps.  Therefore
+\[
+    (F,k(n),t(n))\in\textsc{BLSP}.
+\]
+
+Conversely, suppose
+\[
+    (F,k(n),t(n))\in\textsc{BLSP}.
+\]
+Then some program \(p\) outputs within the allowed time an assignment \(a\)
+satisfying
+\[
+    a\models F.
+\]
+Therefore \(F\) is satisfiable.
+
+Thus
+\[
+    F\in\textsc{SAT}
+    \iff
+    (F,k(n),t(n))\in\textsc{BLSP}.
+\]
+The transformation is polynomial-time computable, so
+\[
+    \textsc{SAT}\leq_p\textsc{BLSP}.
+\]
+Hence \textsc{BLSP} is NP-hard.
+\end{proof}
+
+Combining Theorems~\ref{thm:blsp-in-np} and
+\ref{thm:blsp-np-hard}, we obtain the following.
+
+\begin{corollary}
+\label{cor:blsp-np-complete}
+\textsc{BLSP} is NP-complete.
+\end{corollary}
+
+\subsection{Interpretation}
+
+The preceding construction gives a precise version of the following idea:
+
+\begin{quote}
+For a satisfiable SAT instance, a successful program already exists in the
+space searched by a universal algorithm.  The computational difficulty is to
+identify a successful program without already possessing the satisfying
+assignment encoded by that program.
+\end{quote}
+
+The NP-completeness does not arise merely because universal search can execute
+a polynomial-time SAT solver if one is supplied.  Rather, it arises because
+the \emph{existence of a short program producing a valid witness} can itself
+encode the SAT decision problem.
+
+This distinction is essential.  Executing a known polynomial-time solver is
+easy.  Determining which program in a universal search space is the successful
+one may encode exactly the original NP-complete search.
+
+\subsection{Universal Search and the Blindness Principle}
+
+The previous section characterized NP search as a form of blindness in
+witness space.  The present section reveals a second layer of blindness:
+\emph{program-space blindness}.
+
+There are therefore two related search spaces:
+
+\[
+    \underbrace{\{0,1\}^{m}}_{\text{witness space}}
+    \qquad\text{and}\qquad
+    \underbrace{\{0,1\}^{\ast}}_{\text{program space}}.
+\]
+
+In witness space, the problem is to find
+\[
+    w^\star
+    \quad\text{such that}\quad
+    V(x,w^\star)=1.
+\]
+
+In program space, the problem is to find
+\[
+    p^\star
+    \quad\text{such that}\quad
+    U(p^\star,x)
+\]
+produces such a witness efficiently.
+
+A universal search procedure removes the need to know \emph{whether} such a
+program can in principle be represented: all finite programs are eventually
+considered.  What it does not automatically remove is the cost of locating
+the correct program.
+
+This yields the second principle of the present work.
+
+\begin{principle}[Algorithm Existence versus Algorithm Discovery]
+\label{principle:existence-discovery}
+For a fixed finite NP instance, the existence of a finite correct program is
+not the central obstacle.  The obstacle is the efficient discovery of a
+program whose behavior yields a valid witness without encoding the unknown
+solution as prior information.
+\end{principle}
+
+\subsection{The Meta-Search Reduction}
+
+The relation between the two search layers can be written schematically as
+\[
+    \boxed{
+    \text{SAT witness search}
+    \longrightarrow
+    \text{program search}
+    \longrightarrow
+    \text{universal verification}
+    }.
+\]
+
+A satisfying assignment may be embedded into a short program that prints it.
+Consequently, searching for such a program can be at least as hard as
+searching for the witness itself.
+
+The research objective is therefore sharpened:
+
+\[
+\boxed{\begin{gathered}
+\text{Do not merely enumerate candidate algorithms;}\\
+\text{construct directional information in program space as well.}
+\end{gathered}}
+\]
+
+If the blindness identified in witness space and the blindness identified in
+program space can both be removed by a polynomial-time mechanism, then
+universal search ceases to be a brute-force meta-procedure and becomes a
+candidate route toward efficient solver synthesis.
+
+
+\section{Complexity Transfer Theory}
+\label{sec:complexity-transfer}
+
+\subsection{Where Does the Difficulty Go?}
+
+A recurring phenomenon in attempts to transform an NP-complete problem into
+a tractable one is that the computational difficulty does not disappear when
+the target problem is easy.  Instead, the cost may be transferred into the
+transformation itself.
+
+This motivates the following principle.
+
+\begin{principle}[Complexity Transfer Principle]
+\label{principle:complexity-transfer}
+Suppose a problem \(A\) is transformed into a problem \(B\), solved there, and
+then decoded back into a solution of \(A\).  The total complexity is the cost
+of the entire pipeline,
+\[
+    A
+    \xrightarrow{R}
+    B
+    \xrightarrow{S_B}
+    \text{solution of }B
+    \xrightarrow{D}
+    \text{solution of }A,
+\]
+not merely the complexity of the solver \(S_B\) for the target problem.
+\end{principle}
+
+Thus, reducing an NP-complete problem to an apparently simple polynomial-time
+problem does not by itself remove the original difficulty.  If the reduction
+must compute information equivalent to the missing NP witness, then the
+difficulty has merely moved from the solver to the reduction.
+
+We refer to this displacement as \emph{complexity transfer}.
+
+\subsection{A Quantitative Transfer Law}
+
+Let an input \(x\) of size \(n\) be transformed by a reduction \(R\) into an
+instance \(y=R(x)\) of size
+\[
+    |y| = O(n^{b}).
+\]
+Assume that the reduction itself takes
+\[
+    T_R(n)=O(n^{a})
+\]
+time, the target problem is solved in
+\[
+    T_B(m)=O(m^{c})
+\]
+time on inputs of length \(m\), and reconstruction takes
+\[
+    T_D(n)=O(n^{d}).
+\]
+
+Then the complete algorithm has running time
+\[
+\begin{aligned}
+    T_A(n)
+    &=
+    T_R(n)
+    +
+    T_B(|R(x)|)
+    +
+    T_D(n)\\
+    &=
+    O(n^{a})
+    +
+    O\!\left((n^{b})^{c}\right)
+    +
+    O(n^{d})\\
+    &=
+    O\!\left(n^{\max\{a,bc,d\}}\right).
+\end{aligned}
+\]
+
+This gives the first form of the transfer law:
+\[
+    \boxed{
+    \deg(A)
+    =
+    \max\{a,bc,d\}.
+    }
+\]
+
+Even when \(B\) has an extremely efficient algorithm, a large exponent in
+the reduction or a large size blow-up can dominate the final complexity.
+
+\subsection{Repeated Reductions and Exponent Growth}
+
+The effect becomes more visible when many polynomial transformations are
+composed.
+
+Suppose
+\[
+    A_0
+    \xrightarrow{R_1}
+    A_1
+    \xrightarrow{R_2}
+    A_2
+    \xrightarrow{R_3}
+    \cdots
+    \xrightarrow{R_k}
+    A_k,
+\]
+and reduction \(R_i\) maps an instance of size \(m\) to one of size
+\[
+    O(m^{b_i}).
+\]
+
+After \(k\) reductions, the final instance may have size
+\[
+    O\!\left(
+        n^{b_1b_2\cdots b_k}
+    \right).
+\]
+
+If the final algorithm runs in degree \(c\), then its contribution becomes
+\[
+    O\!\left(
+        n^{c\,b_1b_2\cdots b_k}
+    \right).
+\]
+
+Consequently, a sequence of individually polynomial constructions may produce
+a polynomial with a very large degree.  Bounds resembling
+\[
+    O(n^{21})
+\]
+can therefore arise naturally from repeated representation expansion,
+simulation overhead, auxiliary data structures, normalization steps, and
+nested polynomial subroutines.
+
+The important point is not the specific exponent \(21\).  The structural
+point is that
+
+\[
+    \boxed{
+    \text{polynomial} \circ \text{polynomial} \circ \cdots
+    \text{ remains polynomial, but its degree may grow dramatically.}
+    }
+\]
+
+This phenomenon will be called \emph{polynomial complexity accumulation}.
+
+\subsection{The Water Analogy}
+
+Complexity transfer may be visualized as a conservation-like phenomenon.
+
+Imagine computational difficulty as water flowing through a sequence of
+containers.  Replacing one container by an easier one does not necessarily
+remove the water.  Unless an actual structural simplification occurs, the
+water reappears elsewhere:
+
+\[
+\boxed{
+\begin{array}{ccccc}
+\text{search} &
+\longrightarrow &
+\text{reduction} &
+\longrightarrow &
+\text{reconstruction}
+\\[3pt]
+\downarrow && \downarrow && \downarrow\\
+\text{cost} && \text{cost} && \text{cost}
+\end{array}
+}
+\]
+
+One may reduce the complexity of the central solver while increasing the
+complexity of the transformation feeding that solver.
+
+For this reason, the objective is not merely to relocate the difficult step.
+The objective is to destroy the need for that step.
+
+\subsection{Example: BLSP to Ordered Search}
+
+Consider the NP-complete problem \textsc{BLSP} from
+Section~\ref{sec:levin-meta-search}.  Suppose one attempts to transform a
+\textsc{BLSP} instance into an ordered list so that binary search may locate
+the desired program.
+
+Binary search itself requires only
+\[
+    O(\log N)
+\]
+queries over a search space of size \(N\), provided that each query supplies
+a correct left/right decision.
+
+The essential question is therefore not whether binary search is efficient.
+It is.  The essential question is:
+
+\[
+    \boxed{
+    \text{How is the ordering predicate constructed?}
+    }
+\]
+
+Suppose a predicate
+\[
+    G(x,q)\in\{-1,0,+1\}
+\]
+is intended to tell the search procedure whether the desired solution lies
+to the left of \(q\), equals \(q\), or lies to the right of \(q\).
+
+If computing \(G\) requires determining whether some region of program space
+contains a valid SAT-solving program, then \(G\) may already encode the
+original NP-complete decision problem.
+
+In that case the search stage has complexity
+\[
+    O(\log N),
+\]
+but every search step invokes a difficult directional predicate.
+
+The total cost is then approximately
+\[
+    O\!\left(
+        T_G(n)\log N
+    \right),
+\]
+not merely \(O(\log N)\).
+
+The apparent speed of binary search has therefore not solved the original
+problem.  The complexity has been transferred into \(G\).
+
+\subsection{Reduction-to-P Barrier}
+
+This observation has an immediate formal consequence.
+
+\begin{proposition}[Direct Reduction Barrier]
+\label{prop:reduction-to-p-barrier}
+Let \(A\) be NP-complete and let \(B\in\mathbf{P}\).  If there exists a
+polynomial-time many-one reduction
+\[
+    A\leq_p B,
+\]
+then
+\[
+    \mathbf{P}=\mathbf{NP}.
+\]
+\end{proposition}
+
+\begin{proof}
+Let \(R\) be the polynomial-time reduction from \(A\) to \(B\), and let
+\(S_B\) be a polynomial-time decision algorithm for \(B\).  Then
+\[
+    x\in A
+    \iff
+    R(x)\in B.
+\]
+Therefore the composition
+\[
+    x
+    \longmapsto
+    R(x)
+    \longmapsto
+    S_B(R(x))
+\]
+decides \(A\) in polynomial time.  Since \(A\) is NP-complete, every language
+in \(\mathbf{NP}\) reduces to \(A\), hence every language in \(\mathbf{NP}\)
+belongs to \(\mathbf{P}\).  Since
+\[
+    \mathbf{P}\subseteq\mathbf{NP},
+\]
+we conclude
+\[
+    \mathbf{P}=\mathbf{NP}.
+\]
+\end{proof}
+
+Thus a successful polynomial reduction of an NP-complete problem to an
+ordinary problem such as ordered search is not merely a preprocessing trick.
+It already contains the essential content of a proof of
+\(\mathbf{P}=\mathbf{NP}\).
+
+\subsection{Why Stacking Polynomial Algorithms Is Not Enough}
+
+Suppose an attempted construction uses polynomial-time components
+\[
+    A_1,A_2,\dots,A_k.
+\]
+
+It is tempting to reason that because every component belongs to
+\(\mathbf{P}\), their combination should reveal an efficient solution to an
+NP-complete problem.
+
+However, the relevant question is not whether the components are individually
+polynomial.  It is whether the composition provides the missing information
+without invoking an operation equivalent to the original NP-complete task.
+
+A construction may contain only polynomial-looking subroutines while still
+failing for one of three reasons:
+
+\begin{enumerate}
+    \item the number of subroutine invocations is exponential;
+    \item intermediate representations grow too rapidly;
+    \item one supposedly simple predicate implicitly asks an NP-complete
+    question.
+\end{enumerate}
+
+Thus the important invariant is not
+
+\[
+    \text{``every box is polynomial,''}
+\]
+
+but rather
+
+\[
+    \boxed{
+    \text{the complete information flow must remain polynomial.}
+    }
+\]
+
+\subsection{NP-Native Polynomial Computation}
+
+We now introduce terminology for the alternative strategy pursued here.
+
+Complexity classes such as \(\mathbf{P}\) and \(\mathbf{NP}\) classify
+decision problems, not styles of algorithms.  Consequently, any
+deterministic algorithm that decides an NP-complete problem in polynomial time
+would, by definition, place that problem in \(\mathbf{P}\).
+
+Nevertheless, there is a useful architectural distinction between two
+approaches.
+
+\begin{definition}[P-Reduction Architecture]
+A \emph{P-reduction architecture} attempts to solve an NP-complete problem by
+repeatedly translating it into already tractable polynomial-time primitives.
+\end{definition}
+
+\begin{definition}[NP-Native Polynomial Architecture]
+\label{def:np-native}
+An \emph{NP-native polynomial architecture} operates directly on the
+verification relation
+\[
+    V(x,w)
+\]
+or directly on the witness/program space associated with the NP-complete
+problem, and seeks to construct the missing witness using only a polynomial
+number of polynomial-time transformations, without first assuming an
+efficient reduction to an already ordered or guided search problem.
+\end{definition}
+
+The phrase \emph{NP-native} describes where the algorithm is designed to
+operate, not a new complexity class.
+
+If such an architecture deterministically solves an NP-complete problem in
+polynomial time, then the final consequence is of course
+
+\[
+    \mathbf{P}=\mathbf{NP}.
+\]
+
+The conceptual difference is methodological:
+
+\[
+\boxed{
+\begin{array}{c}
+\text{Do not begin by forcing NP into a pre-existing P geometry.}\\[4pt]
+\text{Instead, construct polynomial guidance inside the NP geometry itself.}
+\end{array}
+}
+\]
+
+\subsection{Connection to Blind Witness Search}
+
+This principle connects directly to
+Section~\ref{sec:blind-witness-search}.
+
+The naive route is
+
+\[
+    \text{blind NP search}
+    \longrightarrow
+    \text{reduction}
+    \longrightarrow
+    \text{guided P problem}.
+\]
+
+Complexity Transfer Theory warns that the missing guidance may simply be
+hidden inside the reduction.
+
+The proposed route is instead
+
+\[
+    \text{blind NP search}
+    \longrightarrow
+    \text{internal directionalization}
+    \longrightarrow
+    \text{guided NP-native search}.
+\]
+
+That is, rather than asking
+
+\[
+    \text{``To which easy problem can SAT be converted?''},
+\]
+
+we ask
+
+\[
+    \boxed{
+    \text{``Can SAT generate its own polynomial directional signal?''}
+    }
+\]
+
+This is the central distinction.
+
+\subsection{Connection to Levin Program Search}
+
+The same idea applies to the program space introduced in
+Section~\ref{sec:levin-meta-search}.
+
+A universal search enumerates candidate programs blindly.  One possible
+strategy is to repeatedly reduce questions about those programs to simpler
+problems.  Complexity Transfer Theory predicts that the missing information
+may reappear in the reductions.
+
+The alternative is to define an intrinsic signal
+\[
+    D_{\mathrm{prog}}(x,p)
+\]
+that reveals how the current candidate program should be transformed toward a
+successful one.
+
+Thus the two directionalization problems become
+
+\[
+    D_{\mathrm{wit}}(x,w)
+\]
+for witness space, and
+\[
+    D_{\mathrm{prog}}(x,p)
+\]
+for program space.
+
+A successful construction should avoid transferring the difficulty between
+these spaces.
+
+\subsection{The No-Escape Criterion}
+
+We therefore impose the following criterion on the remainder of the proof.
+
+\begin{principle}[No-Escape Criterion]
+\label{principle:no-escape}
+At every stage of the construction, all complexity introduced by
+representation changes, reductions, oracle-like predicates, witness
+reconstruction, program synthesis, and directional signals must be explicitly
+accounted for.
+
+No step is considered a genuine simplification if it merely relocates an
+NP-complete subproblem into an auxiliary predicate.
+\end{principle}
+
+Equivalently, if the final algorithm has the form
+\[
+    A=A_k\circ A_{k-1}\circ\cdots\circ A_1,
+\]
+then the proof must establish a uniform polynomial bound
+\[
+    T_A(n)\leq n^{O(1)}
+\]
+for the \emph{entire composition}, including every intermediate
+representation and every call to the directional mechanism.
+
+\subsection{Third Principle of the Construction}
+
+The third principle of this work may now be stated succinctly.
+
+\begin{principle}[Native Directionality]
+\label{principle:native-directionality}
+An efficient solution to NP-complete search should not obtain its direction
+by transferring the original NP-complete difficulty into a preprocessing
+reduction.  Direction should instead be generated intrinsically inside the
+NP witness or program space with polynomial total cost.
+\end{principle}
+
+The goal is therefore not
+
+\[
+    \boxed{
+    \text{NP}
+    \xrightarrow{\text{expensive encoding}}
+    \text{easy P search}
+    }
+\]
+
+but rather
+
+\[
+    \boxed{
+    \text{NP blind search}
+    \xrightarrow{\text{polynomial intrinsic signal}}
+    \text{NP-native guided search}.
+    }
+\]
+
+If such intrinsic directionality can be constructed uniformly for an
+NP-complete problem, then the blindness identified in the preceding sections
+is removed without allowing the complexity to escape into the reduction.
+
+
+\section{The NP-Native Construction Constraint}
+\label{sec:np-native-constraint}
+
+\subsection{Why the Architecture Must Be Delimited}
+
+The previous section introduced Complexity Transfer Theory: when an
+NP-complete problem is repeatedly translated into already tractable
+polynomial-time problems, the missing difficulty may reappear in the
+translation, ordering predicate, reconstruction map, or intermediate
+representation.
+
+The present section therefore imposes an architectural restriction on the
+construction.
+
+The core mechanism should not attempt to solve an NP-complete problem by first
+converting it into an unrelated problem already known to belong to
+\(\mathbf{P}\), solving that external problem, and then decoding its answer.
+Instead, the mechanism should operate directly on the native structure of the
+NP problem itself.
+
+Informally:
+
+\[
+\boxed{
+\text{Do not solve NP by escaping from NP.}
+}
+\]
+
+Rather, the goal is
+
+\[
+\boxed{
+\text{operate inside the NP verification structure and make that operation
+polynomial.}
+}
+\]
+
+This distinction is methodological rather than terminological.  In standard
+complexity theory, any deterministic polynomial-time algorithm for an
+NP-complete language places that language in \(\mathbf{P}\).  Nevertheless,
+the internal architecture by which such an algorithm is obtained may be very
+different from a reduction to an already known problem in \(\mathbf{P}\).
+
+\subsection{External-P Architecture}
+
+We first formalize the architecture that the present approach seeks to avoid.
+
+\begin{definition}[External-P Architecture]
+\label{def:external-p-architecture}
+Let \(L\) be an NP-complete language.  An \emph{external-P architecture} is a
+pipeline of the form
+\[
+    x
+    \xrightarrow{R}
+    y
+    \xrightarrow{A_P}
+    z
+    \xrightarrow{D}
+    \operatorname{Ans}_L(x),
+\]
+where \(A_P\) is an algorithm designed to solve a problem
+\(Q\in\mathbf{P}\), while \(R\) translates the original NP-complete instance
+into an instance of \(Q\), and \(D\) reconstructs the answer to \(L\).
+\end{definition}
+
+Such an architecture is not intrinsically invalid.  Indeed, if \(R\) and
+\(D\) are polynomial and the reduction is correct, then it would yield a
+polynomial-time algorithm for \(L\).
+
+The concern is instead structural: if the transformation \(R\) must already
+discover the missing witness geometry, then the tractability of \(A_P\) has
+not explained the tractability of the original problem.
+
+The apparent simplification may have the form
+
+\[
+    \underbrace{\text{hard NP structure}}_{\text{input}}
+    \xrightarrow{
+        \text{hard translation}
+    }
+    \underbrace{\text{easy P structure}}_{\text{target}}.
+\]
+
+The easy target problem then receives information whose expensive discovery
+has already occurred.
+
+\subsection{The Native Alternative}
+
+We therefore define a different architecture.
+
+\begin{definition}[NP-Native Operator]
+\label{def:np-native-operator}
+Let \(L\in\mathbf{NP}\) be represented by a polynomial-time verification
+relation
+\[
+    V(x,w).
+\]
+An \emph{NP-native operator} is a transformation whose primary objects are
+drawn directly from the verification structure of \(L\), such as
+
+\[
+    x,\qquad
+    w,\qquad
+    u,\qquad
+    V(x,w),\qquad
+    \mathcal{W}_x,
+\]
+where
+\[
+    \mathcal{W}_x
+    :=
+    \{w:V(x,w)=1\},
+\]
+or from representations canonically derived from these objects, and whose
+purpose is to transform, restrict, organize, compare, or navigate the witness
+space without first replacing the task by an unrelated language already
+known to be in \(\mathbf{P}\).
+\end{definition}
+
+The phrase \emph{NP-native} does not denote a new classical complexity class.
+It denotes the location at which the mechanism acts.
+
+An NP-native operator may use ordinary polynomial-time arithmetic, Boolean
+operations, indexing, sorting of explicitly available polynomial-size data,
+or other elementary subroutines.  What it must not do is derive its decisive
+power by silently outsourcing the missing NP search to an auxiliary
+NP-complete predicate disguised as preprocessing.
+
+\subsection{Native State Space}
+
+For a fixed input \(x\), let the candidate-witness space be
+
+\[
+    \Omega_x
+    :=
+    \{0,1\}^{p(|x|)}.
+\]
+
+The standard verifier partitions this space into
+
+\[
+    \Omega_x
+    =
+    \mathcal{W}_x
+    \cup
+    \mathcal{N}_x,
+\]
+where
+\[
+    \mathcal{W}_x
+    =
+    \{w:V(x,w)=1\}
+\]
+is the accepting region and
+\[
+    \mathcal{N}_x
+    =
+    \{w:V(x,w)=0\}
+\]
+is the rejecting region.
+
+An external-P strategy may attempt to map \(\Omega_x\) into a new geometry
+whose navigation is already easy.
+
+The NP-native strategy instead asks whether one can define operations
+
+\[
+    \Phi_x:\Omega_x\to\Omega_x,
+\]
+
+or, more generally,
+
+\[
+    \Phi_x:
+    \mathcal{S}_x
+    \to
+    \mathcal{S}_x,
+\]
+
+where \(\mathcal{S}_x\) is a polynomially representable state space derived
+from the witness relation, such that repeated application of \(\Phi_x\)
+reveals a valid witness in polynomially many steps.
+
+The desired architecture is therefore
+
+\[
+    s_0
+    \xrightarrow{\Phi_x}
+    s_1
+    \xrightarrow{\Phi_x}
+    s_2
+    \xrightarrow{\Phi_x}
+    \cdots
+    \xrightarrow{\Phi_x}
+    s_T,
+\]
+with
+\[
+    T\leq |x|^{O(1)}
+\]
+and with \(s_T\) determining a witness \(w^\star\) satisfying
+
+\[
+    V(x,w^\star)=1
+\]
+whenever such a witness exists.
+
+\subsection{The Crucial Distinction}
+
+The distinction may be summarized as follows.
+
+The rejected architecture is
+
+\[
+\boxed{
+\text{NP instance}
+\longrightarrow
+\text{representation of a known P problem}
+\longrightarrow
+\text{P solver}
+\longrightarrow
+\text{NP answer}.
+}
+\]
+
+The target architecture is
+
+\[
+\boxed{\begin{gathered}
+\text{NP instance}\longrightarrow\text{NP-native transformation}\\
+\longrightarrow\text{NP-native transformation}\longrightarrow\cdots\longrightarrow\text{witness}.
+\end{gathered}}
+\]
+
+If the second pipeline runs in polynomial time, then the final algorithm is,
+of course, a polynomial-time algorithm in the ordinary complexity-theoretic
+sense.
+
+What differs is the source of the tractability.
+
+The first architecture attempts to inherit tractability from a different
+problem.
+
+The second architecture attempts to \emph{create tractability internally}.
+
+\subsection{An ``NP Algorithm'' in the Present Sense}
+
+The phrase
+\[
+    \text{``an NP algorithm that solves NP''}
+\]
+will be used in this work only as shorthand for an NP-native mechanism.
+
+It does \emph{not} mean that there exists a separate standard class of
+``NP algorithms'' distinct from nondeterministic polynomial-time machines.
+Instead, it means that the construction is formulated directly in terms of
+the same witness relation responsible for membership in \(\mathbf{NP}\).
+
+The mechanism is allowed to exploit facts of the form
+
+\[
+    \exists w\;V(x,w)=1,
+\]
+the internal structure of candidate witnesses, relations among partial
+witnesses, verifier responses, clause structure, constraint structure, or
+program-witness structure.
+
+Its job is to convert this native NP structure into deterministic directional
+information.
+
+Thus the slogan
+
+\[
+\boxed{
+\text{NP solves NP in order to become P}
+}
+\]
+
+will be understood as the following precise research program:
+
+\[
+\boxed{
+\begin{array}{c}
+\text{Construct a deterministic polynomial-time process}\\
+\text{whose states and transitions are defined directly}\\
+\text{from an NP verification relation.}
+\end{array}
+}
+\]
+
+If successful for one NP-complete problem, the ordinary consequence is
+
+\[
+    \mathbf{P}=\mathbf{NP}.
+\]
+
+\subsection{The Non-Escape Rule}
+
+We now strengthen the No-Escape Criterion of
+Section~\ref{sec:complexity-transfer}.
+
+\begin{principle}[Non-Escape Rule]
+\label{principle:non-escape-rule}
+The decisive operation of the construction must not obtain its power by
+reducing the current NP-complete search state to an independently tractable
+problem whose representation already contains the missing directional
+information.
+
+Instead, every decisive transition must be definable directly from the
+native verifier, witness space, constraint system, or program space.
+\end{principle}
+
+This rule does not forbid all polynomial-time subroutines.  Such a ban would
+be meaningless, since any eventual polynomial-time algorithm necessarily
+consists of polynomial-time operations.
+
+The rule forbids a more specific architectural maneuver:
+
+\[
+\boxed{
+\text{hiding the breakthrough inside the construction of an easy instance.}
+}
+\]
+
+For example, if SAT is transformed into an ordered array whose median query
+reveals which half contains a satisfying assignment, then the central question
+is not whether binary search is allowed.  The central question is how the
+ordering was obtained.
+
+If obtaining that ordering already requires deciding whether a region contains
+a satisfying assignment, then the decisive NP information entered before
+binary search began.
+
+The proposed construction seeks the opposite direction: derive the ordering,
+gradient, orientation, or equivalent signal \emph{from the NP-native
+structure itself} by a polynomial process.
+
+\subsection{Primitive Operations and Decisive Operations}
+
+To make the restriction precise, we distinguish between two kinds of
+operations.
+
+\begin{definition}[Primitive Polynomial Operation]
+A \emph{primitive polynomial operation} is an ordinary computational step
+whose input is explicitly available polynomial-size data and whose output can
+be computed in deterministic polynomial time without answering a hidden
+existential question over an exponentially large witness space.
+\end{definition}
+
+Examples include evaluating the verifier on a specified witness, computing a
+clause score, updating an explicitly represented state, comparing two explicit
+integers, multiplying polynomial-size matrices, or sorting an explicitly
+given polynomial-size list.
+
+\begin{definition}[Decisive Operation]
+A \emph{decisive operation} is a step whose output determines which
+exponentially large region of witness or program space may be discarded,
+retained, or preferred.
+\end{definition}
+
+The proof must show that every decisive operation can itself be implemented
+using only polynomially many primitive polynomial operations.
+
+This distinction blocks a common circularity.  One cannot define
+
+\[
+    D(x,u)
+    =
+    \begin{cases}
+        0,&\text{if a satisfying completion exists under }u0,\\
+        1,&\text{otherwise},
+    \end{cases}
+\]
+
+and then claim that \(D\) solves SAT efficiently merely because one call to
+\(D\) returns one bit.
+
+The cost of computing \(D\) is the entire issue.
+
+An acceptable NP-native construction must derive the equivalent directional
+bit without assuming the existential search it is meant to replace.
+
+\subsection{Native Polynomialization}
+
+We can now state the transformation sought by this paper.
+
+\begin{definition}[Native Polynomialization]
+\label{def:native-polynomialization}
+Let \(L\) be NP-complete with verifier \(V(x,w)\).  A
+\emph{native polynomialization} of \(L\) is a deterministic process
+\[
+    \mathcal{A}_V
+\]
+such that:
+
+\begin{enumerate}
+    \item its state is polynomially representable;
+    \item its update rule is defined directly from \(x\), \(V\), and
+    polynomially representable structures derived from them;
+    \item each update is computable in polynomial time;
+    \item the number of updates is polynomially bounded;
+    \item no update invokes an auxiliary oracle for an NP-complete language;
+    \item if \(x\in L\), the terminal state yields a valid witness;
+    \item if \(x\notin L\), the terminal state certifies rejection according
+    to the decision procedure implemented by the construction.
+\end{enumerate}
+\end{definition}
+
+The phrase \emph{polynomialization} emphasizes that the algorithm does not
+begin by assuming that NP has already been translated into a known P
+structure.  Instead, it attempts to turn the native NP dynamics themselves
+into a polynomial-time deterministic process.
+
+\subsection{Closure Inside the Verification Relation}
+
+The key object is therefore not an external target language but the verifier
+relation itself.
+
+Let
+
+\[
+    R_V
+    :=
+    \{(x,w):V(x,w)=1\}.
+\]
+
+The construction seeks a family of polynomial-time maps
+
+\[
+    \Phi_1,\Phi_2,\dots,\Phi_r
+\]
+
+acting on polynomially representable objects derived from \(R_V\), such that
+their composition yields enough information to construct a witness:
+
+\[
+    \Phi_r\circ\cdots\circ\Phi_2\circ\Phi_1(x)
+    \longmapsto
+    w^\star.
+\]
+
+The objective is to remain inside the semantic universe generated by
+
+\[
+    (x,w,V(x,w)).
+\]
+
+This motivates the following principle.
+
+\begin{principle}[Native Closure Principle]
+\label{principle:native-closure}
+All nontrivial information used to direct the search should be generated by
+operations whose inputs remain within a polynomially representable closure of
+the original NP verification relation.
+\end{principle}
+
+In informal language:
+
+\[
+\boxed{
+\text{The algorithm should learn how to navigate NP from NP itself.}
+}
+\]
+
+\subsection{Why This Is Not the Same as an Ordinary Reduction}
+
+At first glance, one may object that any deterministic polynomial algorithm
+is ultimately a composition of polynomial transformations, so the distinction
+seems artificial.
+
+The distinction becomes real once the \emph{semantic source} of the
+directional information is tracked.
+
+In an external-P reduction, the representation is engineered until an
+already known solver can exploit it.
+
+In an NP-native construction, the representation is engineered only to expose
+relations already latent in the verifier structure, while the directional
+mechanism itself must still be derived.
+
+Schematically:
+
+\[
+\begin{array}{rcl}
+\text{External-P:}
+&
+\text{NP structure}
+&\xrightarrow{\text{encode solution geometry}}
+\text{known easy geometry},
+\\[6pt]
+\text{NP-native:}
+&
+\text{NP structure}
+&\xrightarrow{\text{extract internal relation}}
+\text{direction inside NP}.
+\end{array}
+\]
+
+The second transformation is useful only if the extracted relation is cheaper
+to compute than solving the original existential problem directly.
+
+This requirement will be tested explicitly in later sections.
+
+\subsection{The Delimitation Condition}
+
+We can now state the fourth principle of the construction.
+
+\begin{principle}[Delimitation Condition]
+\label{principle:delimitation}
+The central algorithmic mechanism must not rely on the fact that some external
+target problem is already known to be in \(\mathbf{P}\).  Its decisive
+progress must arise from an NP-native transformation acting directly on the
+verification or witness structure of the NP-complete source problem.
+\end{principle}
+
+Equivalently, the intended route is not
+
+\[
+    \boxed{
+    \text{NP}
+    \rightarrow
+    \text{P problem}
+    \rightarrow
+    \text{P algorithm}
+    }
+\]
+
+but
+
+\[
+    \boxed{
+    \text{NP}
+    \rightarrow
+    \text{NP-native dynamics}
+    \rightarrow
+    \text{polynomial deterministic behavior}.
+    }
+\]
+
+The final state belongs to ordinary \(\mathbf{P}\) if the runtime is
+polynomial.  However, the construction is obtained by polynomializing an
+NP-native process rather than by importing a pre-existing P solver.
+
+\subsection{Target Form of the Core Algorithm}
+
+The desired core algorithm will therefore have the form
+
+\begin{algorithm}
+\caption{Abstract NP-Native Polynomialization}
+\label{alg:np-native-template}
+\begin{algorithmic}[1]
+\Require Instance \(x\) of an NP-complete language and verifier \(V\)
+\State Construct a polynomial-size native state \(s_0\) from \(x\) and \(V\)
+\For{\(i=0,1,\dots,T(|x|)-1\)}
+    \State Compute an intrinsic signal
+    \[
+        d_i \gets D_V(x,s_i)
+    \]
+    \State Update the native state
+    \[
+        s_{i+1}\gets \Phi_V(x,s_i,d_i)
+    \]
+\EndFor
+\State Decode the terminal state into a witness or rejection decision
+\end{algorithmic}
+\end{algorithm}
+
+The proof burden is then concentrated into three questions:
+
+\[
+\boxed{
+\begin{aligned}
+&\text{1. Can }D_V\text{ be computed in polynomial time?}\\
+&\text{2. Does }\Phi_V\text{ preserve the existence of a valid solution?}\\
+&\text{3. Is }T(|x|)\text{ polynomially bounded?}
+\end{aligned}
+}
+\]
+
+This is the precise form of the claim that the algorithm should ``remain in
+NP'' while being transformed into a polynomial deterministic procedure.
+
+The next section must therefore identify the native state \(s\), the intrinsic
+directional signal \(D_V\), and the update rule \(\Phi_V\).
+
+
+\section{The \texorpdfstring{\(\Phi\)}{Phi} Model and the Search for a Global \texorpdfstring{\(\Omega\)}{Omega} Property}
+\label{sec:phi-omega}
+
+\subsection{One Exceptional NP-Complete Problem Is Sufficient}
+
+The preceding sections delimit the architecture of the desired construction.
+The next question is therefore not whether every NP-complete problem must be
+attacked simultaneously.  It is sufficient to identify one NP-complete
+language \(L^\star\) possessing an exceptional structural property that makes
+its native search polynomial, by the standard reduction framework for NP-completeness~\cite{Cook1971,Karp1972}.
+
+Indeed, if
+\[
+    L^\star \text{ is NP-complete}
+\]
+and there exists a deterministic polynomial-time algorithm deciding
+\(L^\star\), then every language in \(\mathbf{NP}\) reduces to \(L^\star\) in
+polynomial time, and therefore
+\[
+    \mathbf{P}=\mathbf{NP}.
+\]
+
+Consequently, the problem may be reframed as follows:
+
+\[
+\boxed{\begin{gathered}
+\text{Find one NP-complete problem whose native structure admits}\\
+\text{a polynomial global navigation law.}
+\end{gathered}}
+\]
+
+Boolean satisfiability will be used as the primary candidate.
+
+\subsection{The Idealized \(\Phi\) Model}
+
+To identify what must be broken, we first define an idealized model of
+maximal blindness.
+
+Let
+\[
+    \Omega_n=\{0,1\}^n
+\]
+be a witness space.  Consider a verifier landscape
+\[
+    f:\Omega_n\to\{0,1\}.
+\]
+
+The most hostile possible search geometry is one in which, from the viewpoint
+of every efficiently observable local statistic, the location of accepting
+points is indistinguishable from an almost unstructured placement.
+
+We denote this idealized regime by \(\Phi\).
+
+\begin{definition}[\(\Phi\)-Blind Search Model]
+\label{def:phi-blind-model}
+A witness-search problem is said to behave according to the idealized
+\(\Phi\)-model if polynomially bounded local observations of a candidate
+state fail to provide a reliable directional signal indicating which
+macroscopic region of witness space contains an accepting witness.
+\end{definition}
+
+The \(\Phi\)-model is not introduced as a theorem asserting that
+\(\mathbf{P}\neq\mathbf{NP}\).  It is a reference model describing what a
+perfectly blind NP search would look like.
+
+In the limiting intuition, the verifier behaves like a nearly ideal hidden
+target generator: a wrong witness may be recognizable as wrong, while its
+failure reveals essentially no useful global information about where a valid
+witness lies.
+
+Schematically,
+
+\[
+    w
+    \longmapsto
+    f(w)
+\]
+reveals
+
+\[
+    \boxed{
+    \text{accept or reject}
+    }
+\]
+
+but not
+
+\[
+    \boxed{
+    \text{which exponentially large region should be searched next}.
+    }
+\]
+
+If SAT behaved exactly like this idealized object at every useful scale, then
+the directionalization program of the preceding sections would have no
+structure to exploit.
+
+\subsection{Local Structure Is Not the Same as Global Direction}
+
+Boolean formulas are not arbitrary black-box functions.  Their syntax exposes
+substantial local combinatorial information.
+
+For a CNF formula
+\[
+    F=C_1\land C_2\land\cdots\land C_m,
+\]
+one may directly inspect, among other objects,
+
+\[
+    \text{variables},\qquad
+    \text{clauses},\qquad
+    \text{literal occurrences},\qquad
+    \text{local conflicts},
+\]
+\[
+    \text{unit implications},\qquad
+    \text{clause-variable incidence},\qquad
+    \text{partial-assignment effects}.
+\]
+
+These structures already distinguish SAT from a pure black-box hidden-target
+problem.
+
+However, local structure alone does not yet solve the problem.
+
+A local statistic may correctly describe the neighborhood of a candidate
+assignment while failing to identify the global region containing a
+satisfying assignment.  Local signals may conflict, cancel, form cycles, or
+lead toward local minima.
+
+Thus we distinguish two levels of information.
+
+\begin{definition}[Local Property]
+A property \(L(F,s)\) is \emph{local} if its value is determined by a
+polynomially bounded neighborhood, bounded-order interaction, or explicitly
+restricted subset of the current SAT state \(s\).
+\end{definition}
+
+\begin{definition}[Global Property]
+A property \(G(F,s)\) is \emph{global} if it summarizes a relation involving
+the formula as a whole, or a macroscopic partition of its witness space, and
+its directional meaning cannot be reduced to inspecting only one bounded
+local neighborhood.
+\end{definition}
+
+The distinction is conceptual rather than purely syntactic.  A global
+property may still be computed by composing local operations, provided the
+final quantity captures a global constraint on the witness space.
+
+\subsection{Why a Global Property Is Needed}
+
+The target is not merely a score
+\[
+    E_F(w)
+\]
+that says whether the current assignment looks locally better or worse.
+
+The desired object must answer a stronger question:
+
+\[
+\boxed{
+\text{Which large region of the witness space remains compatible with a
+solution?}
+}
+\]
+
+A useful global property must therefore induce a partition or orientation of
+the native SAT state space.
+
+Let
+\[
+    \mathcal{S}_F
+\]
+denote a polynomially representable native state space associated with a
+formula \(F\).  A candidate global property has the form
+
+\[
+    \Omega(F,s).
+\]
+
+The symbol \(\Omega\) is used deliberately: it denotes the property intended
+to break the idealized \(\Phi\)-blindness.
+
+\subsection{The \(\Omega\) Property}
+
+\begin{definition}[Candidate \(\Omega\) Property]
+\label{def:omega-property}
+Let \(F\) be a Boolean formula and \(s\in\mathcal{S}_F\) a native SAT state.
+A candidate \(\Omega\)-property is a polynomially computable global quantity
+\[
+    \Omega(F,s)
+\]
+whose value determines a nontrivial macroscopic restriction, orientation, or
+partition of the remaining witness space.
+\end{definition}
+
+The essential requirement is that \(\Omega\) contain information not already
+available from blind verification alone.
+
+If
+\[
+    \mathcal{R}(s)\subseteq\{0,1\}^{n}
+\]
+denotes the witnesses still represented by state \(s\), then
+\(\Omega(F,s)\) should allow construction of a new state \(s'\) satisfying
+
+\[
+    \mathcal{R}(s')
+    \subsetneq
+    \mathcal{R}(s)
+\]
+
+while preserving at least one satisfying witness whenever the current region
+contains one:
+
+\[
+    \mathcal{R}(s)\cap\mathrm{SAT}(F)\neq\varnothing
+    \Longrightarrow
+    \mathcal{R}(s')\cap\mathrm{SAT}(F)\neq\varnothing.
+\]
+
+Here
+\[
+    \mathrm{SAT}(F)
+    :=
+    \{w\in\{0,1\}^{n}:w\models F\}.
+\]
+
+This is the central preservation condition.
+
+\subsection{Requirements for a Useful \(\Omega\)}
+
+For \(\Omega\) to yield a genuine polynomialization rather than another hidden
+oracle, it must satisfy several properties.
+
+\begin{enumerate}
+    \item \textbf{Polynomial computability.}
+    There exists a deterministic polynomial \(q\) such that
+    \[
+        T_{\Omega}(F,s)\leq q(|F|).
+    \]
+
+    \item \textbf{Globality.}
+    The value of \(\Omega\) must constrain a macroscopic subset of the
+    remaining witness space rather than merely rank one neighboring
+    assignment.
+
+    \item \textbf{Directional power.}
+    From \(\Omega(F,s)\), one must be able to construct a successor state
+    \[
+        s'=\Psi(F,s,\Omega(F,s))
+    \]
+    that represents strict progress.
+
+    \item \textbf{Solution preservation.}
+    Whenever the current state represents at least one satisfying witness,
+    the chosen successor must continue to represent at least one satisfying
+    witness.
+
+    \item \textbf{Polynomial convergence.}
+    Repeated application must terminate after at most
+    \[
+        |F|^{O(1)}
+    \]
+    updates.
+
+    \item \textbf{No hidden NP oracle.}
+    Computing \(\Omega\) must not itself require answering a question
+    equivalent to
+    \[
+        \exists w\; w\models F
+    \]
+    over an exponentially large unrestricted subspace.
+\end{enumerate}
+
+These conditions distinguish a useful \(\Omega\) from an oracle such as
+
+\[
+    \Omega_{\mathrm{trivial}}(F,u)
+    =
+    \begin{cases}
+        1,&\exists v\text{ such that }uv\models F,\\
+        0,&\text{otherwise}.
+    \end{cases}
+\]
+
+The latter would provide perfect direction, but computing it is precisely the
+problem to be solved.
+
+\subsection{Breaking \(\Phi\)}
+
+The role of \(\Omega\) can now be expressed as a symmetry-breaking operation.
+
+Under the idealized \(\Phi\)-model, two enormous regions of witness space may
+appear computationally indistinguishable with respect to all available local
+observations.
+
+The desired property satisfies
+
+\[
+    \Omega(F,S_0)\neq\Omega(F,S_1)
+\]
+
+for two such regions \(S_0,S_1\), in a manner correlated with preservation of
+the satisfying set.
+
+Thus the intended transition is
+
+\[
+\boxed{
+\Phi\text{-blindness}
+\quad
+\xrightarrow{\;\Omega\;}
+\quad
+\text{global asymmetry}
+\quad
+\xrightarrow{\;\Psi\;}
+\quad
+\text{direction}.
+}
+\]
+
+This is the central conceptual move of the present approach.
+
+\subsection{Local Patterns as Evidence of Non-Random Geometry}
+
+SAT formulas are generated by explicit symbolic constraints.  As a result,
+their witness landscapes need not possess the complete symmetry of the
+idealized \(\Phi\)-model.
+
+Even before a global law is identified, local structure demonstrates that the
+landscape is not represented merely by an opaque lookup table.
+
+For example, flipping a single variable modifies exactly those clauses in
+which the corresponding literal occurs.  Partial assignments can activate
+unit clauses.  Clauses sharing variables generate dependency structure.
+Conflicting assignments generate reusable information about combinations of
+choices.
+
+These phenomena show that SAT exposes correlations between nearby pieces of
+the witness representation.
+
+However, the proposed proof requires more than correlations.
+
+It requires a quantity that aggregates them into a globally valid direction.
+
+The intended progression is therefore
+
+\[
+    \boxed{
+    \text{local pattern}
+    \;\not\Rightarrow\;
+    \text{global solution}
+    }
+\]
+
+but potentially
+
+\[
+    \boxed{
+    \text{all local relations}
+    \xrightarrow{\text{global aggregation}}
+    \Omega
+    \xrightarrow{\text{direction}}
+    \text{polynomial search}.
+    }
+\]
+
+\subsection{The Exceptional-Structure Hypothesis}
+
+We now state the working hypothesis that motivates the next stage.
+
+\begin{principle}[Exceptional-Structure Hypothesis]
+\label{principle:exceptional-structure}
+There exists at least one NP-complete problem \(L^\star\) whose native
+verification structure admits a polynomially computable global property
+\(\Omega\) that produces solution-preserving directional progress over its
+witness space.
+\end{principle}
+
+For the remainder of the construction, SAT is taken as the candidate
+\(L^\star\).
+
+The burden is therefore reduced to discovering a concrete \(\Omega\) and
+proving the required properties.
+
+\subsection{A Strong Form of the \(\Omega\) Criterion}
+
+An especially useful form of \(\Omega\) would induce a balanced reduction of
+the remaining candidate space.
+
+Suppose a state \(s\) represents a set
+\[
+    \mathcal{R}(s).
+\]
+
+If one update produces \(s'\) satisfying
+
+\[
+    |\mathcal{R}(s')|
+    \leq
+    \alpha |\mathcal{R}(s)|
+\]
+for some uniform constant
+\[
+    0<\alpha<1,
+\]
+while preserving satisfiability, then after \(k\) steps
+
+\[
+    |\mathcal{R}(s_k)|
+    \leq
+    \alpha^k 2^n.
+\]
+
+Hence
+\[
+    k=O(n)
+\]
+iterations suffice to shrink an exponential witness space to constant size.
+
+This would be the direct analogue of binary search, but with a crucial
+difference:
+
+\[
+\boxed{\begin{gathered}
+\text{the directional partition would be generated intrinsically from SAT,}\\
+\text{not supplied by an external ordering oracle.}
+\end{gathered}}
+\]
+
+Balanced shrinkage is stronger than necessary, but it provides a clean target
+for the construction.
+
+\subsection{A Weaker Form}
+
+The property need not halve the space at every step.
+
+It is enough that a polynomially bounded potential
+\[
+    \mu(F,s)
+\]
+decrease monotonically under the \(\Omega\)-guided update:
+
+\[
+    \mu(F,s_{i+1})
+    <
+    \mu(F,s_i),
+\]
+
+with
+\[
+    0\leq \mu(F,s)\leq |F|^{c}
+\]
+for some constant \(c\).
+
+Then at most
+\[
+    |F|^c
+\]
+strict decreases can occur.
+
+This yields an alternative route:
+
+\[
+\boxed{
+\Omega
+\rightarrow
+\text{global progress measure}
+\rightarrow
+\text{polynomial termination}.
+}
+\]
+
+The construction may therefore seek either a balanced-space separator or a
+global monotone potential.
+
+\subsection{The \(\Phi\)-to-\(\Omega\) Program}
+
+The fifth principle of this work is now:
+
+\begin{principle}[\(\Phi\)-to-\(\Omega\) Principle]
+\label{principle:phi-to-omega}
+Model the maximally difficult NP search as an approximately structureless
+\(\Phi\)-landscape.  Then search for a global invariant \(\Omega\) in a
+specific NP-complete problem that provably distinguishes solution-preserving
+directions in polynomial time.
+\end{principle}
+
+The intended chain is
+
+\[
+\boxed{
+\begin{array}{c}
+\text{NP-complete SAT}\\[2pt]
+\downarrow\\[2pt]
+\text{locally structured but globally blind witness space}\\[2pt]
+\downarrow\\[2pt]
+\text{discover global property }\Omega\\[2pt]
+\downarrow\\[2pt]
+\text{polynomial directional signal}\\[2pt]
+\downarrow\\[2pt]
+\text{NP-native polynomialization}.
+\end{array}
+}
+\]
+
+The next stage of the proof must therefore stop speaking about \(\Omega\)
+abstractly and propose an explicit candidate formula for it.
+
+
+\section{Meta-Binary Search and Recursive Self-Oracularization}
+\label{sec:meta-binary-search}
+
+\subsection{The Missing Oracle}
+
+Binary search is efficient because every query returns directional
+information.  Let a totally ordered search space be
+\[
+    X=\{0,1,\dots,N-1\},
+\]
+and let \(z\in X\) be the hidden target.  Ordinary binary search assumes
+access to a directional predicate
+\[
+    O_z(q)\in\{-1,0,+1\},
+\]
+where
+\[
+    O_z(q)=
+    \begin{cases}
+        -1,&z<q,\\
+        0,&z=q,\\
+        +1,&z>q.
+    \end{cases}
+\]
+
+Given \(O_z\), one query discards approximately half of the remaining search
+space, yielding the familiar bound
+\[
+    O(\log N).
+\]
+
+The central difficulty is therefore not the bisection rule itself.  It is the
+existence of the directional oracle.
+
+This section asks a different question:
+
+\[
+\boxed{
+\text{Can the oracle be generated by the search process itself?}
+}
+\]
+
+This question motivates \emph{meta-binary search}.
+
+\subsection{Binary Search Without a Directional Oracle}
+
+Suppose the target space remains ordered, but the directional oracle is not
+available.  A midpoint query \(q\) no longer answers whether the target lies
+to the left or right.
+
+The ordinary transition
+\[
+    I
+    \longrightarrow
+    I_{\mathrm{left}}
+    \quad\text{or}\quad
+    I_{\mathrm{right}}
+\]
+therefore becomes undefined.
+
+Let
+\[
+    \mathcal{B}(I)
+\]
+denote binary search over interval \(I\), and let
+\[
+    \mathcal{D}(I,q)
+\]
+denote the missing decision determining which half of \(I\) should survive.
+
+Ordinary binary search assumes
+\[
+    \mathcal{D}
+\]
+as an external primitive.
+
+Meta-binary search instead promotes \(\mathcal{D}\) itself to a search
+problem.
+
+\subsection{Meta-Binary Search}
+
+\begin{definition}[Meta-Binary Search]
+\label{def:meta-binary-search}
+A \emph{meta-binary search} is a recursive search architecture in which the
+directional predicate required by the current binary-search level is itself
+computed by another instance of an oracle-free search process.
+\end{definition}
+
+Schematically,
+
+\[
+    \mathcal{B}_0
+    \text{ needs }
+    \mathcal{D}_0.
+\]
+
+Instead of supplying \(\mathcal{D}_0\) externally, define
+\[
+    \mathcal{D}_0
+    :=
+    \mathcal{B}_1,
+\]
+where \(\mathcal{B}_1\) is itself an oracle-free binary-search instance
+constructed to determine the answer required by \(\mathcal{B}_0\).
+
+But now \(\mathcal{B}_1\) requires its own directional predicate
+\[
+    \mathcal{D}_1.
+\]
+
+Thus
+\[
+    \mathcal{D}_1
+    :=
+    \mathcal{B}_2,
+\]
+and so on.
+
+The resulting tower is
+
+\[
+\boxed{
+\mathcal{B}_0
+\leftarrow
+\mathcal{B}_1
+\leftarrow
+\mathcal{B}_2
+\leftarrow
+\cdots
+}
+\]
+
+where each level attempts to supply the missing direction of the previous
+level.
+
+\subsection{Self-Oracularization}
+
+The preceding recursion motivates a more general concept.
+
+\begin{definition}[Self-Oracularization]
+\label{def:self-oracularization}
+Let \(A\) be an algorithmic process requiring access to an oracle \(O\).
+A \emph{self-oracularization} of \(A\) is a construction in which each query
+to \(O\) is replaced by an encoded instance of the same computational
+framework, recursively tasked with determining the oracle answer.
+\end{definition}
+
+In symbolic form,
+
+\[
+    A^O(x)
+\]
+
+is replaced by
+
+\[
+    A^{A^{A^{\cdot^{\cdot^{\cdot}}}}}(x).
+\]
+
+The purpose is not to execute an actually infinite recursion.  The purpose is
+to identify a finite representation of its self-similar dependency
+structure.
+
+This leads to the next object.
+
+\subsection{The Infinite Oracle Tower}
+
+Let
+\[
+    Q_0
+\]
+be the original query.
+
+Suppose answering \(Q_0\) requires a subsidiary query
+\[
+    Q_1.
+\]
+Answering \(Q_1\) requires
+\[
+    Q_2,
+\]
+and so forth.
+
+The naive dependency structure is
+
+\[
+    Q_0
+    \to
+    Q_1
+    \to
+    Q_2
+    \to
+    Q_3
+    \to
+    \cdots.
+\]
+
+If interpreted operationally, this never reaches a base case.
+
+The intended construction instead treats the infinite tower as a
+\emph{self-similar object}.
+
+If every level is generated by the same transformation
+\[
+    Q_{i+1}=T(Q_i),
+\]
+then the entire tower is determined by
+
+\[
+    Q_0
+    \quad\text{and}\quad
+    T.
+\]
+
+Thus the information content of the infinite sequence need not equal the
+length of the sequence.
+
+This distinction is crucial.
+
+An infinite object may admit a finite description whenever its structure is
+recursive, periodic, algebraic, automorphic, or otherwise generated by a
+finite rule.
+
+\subsection{Holographic Encoding}
+
+We use the term \emph{holographic encoding} for the intended finite
+representation of this recursive dependency structure.
+
+\begin{definition}[Holographic Oracle Encoding]
+\label{def:holographic-oracle-encoding}
+A \emph{holographic oracle encoding} is a finite representation
+\[
+    H(Q,T)
+\]
+of an unbounded recursively generated oracle-dependency tower
+\[
+    Q,\ T(Q),\ T^2(Q),\dots
+\]
+such that the global consistency conditions of the tower can be recovered
+from polynomially many explicitly represented relations.
+\end{definition}
+
+The term \emph{holographic} is used here in the structural sense that the
+finite representation is intended to encode global information through
+distributed local constraints.
+
+This is conceptually reminiscent of redundant proof representations such as
+those appearing in probabilistically checkable proofs: global correctness may
+be constrained by many locally testable relations~\cite{AroraEtAl1998}.  The present construction,
+however, is not identified with the PCP theorem itself.  Rather, PCP serves as
+evidence that highly redundant encodings can expose global consistency through
+structured local access.
+
+The desired encoding has the schematic form
+
+\[
+    \boxed{
+    \text{infinite recursive oracle tower}
+    \longrightarrow
+    \text{finite self-consistency object}.
+    }
+\]
+
+\subsection{Fixed-Point Formulation}
+
+A natural way to collapse the infinite recursion is through a fixed point.
+
+Suppose the oracle state is represented by some object \(h\), and one level
+of self-oracularization induces a transformation
+\[
+    \mathcal{F}_x(h).
+\]
+
+A self-consistent oracle representation should satisfy
+
+\[
+    h^\star
+    =
+    \mathcal{F}_x(h^\star).
+\]
+
+Thus the infinite dependency tower is replaced by the finite equation
+
+\[
+\boxed{
+h=\mathcal{F}_x(h).
+}
+\]
+
+The role of the holographic representation is to encode this equation and its
+consistency constraints in polynomial space.
+
+The computational objective then becomes:
+
+\[
+\boxed{
+\text{solve the self-consistency condition rather than unfold the recursion}.
+}
+\]
+
+This is the key meta-search move.
+
+\subsection{Polynomial Compression Requirement}
+
+For the construction to be useful, the fixed-point representation must not
+inherit exponential size.
+
+Let \(n\) denote the size of the original problem instance.  We require an
+encoding
+\[
+    H_x
+\]
+such that
+
+\[
+    |H_x|\leq n^{O(1)}.
+\]
+
+The strongest intended form is near-linear or subquadratic representation,
+
+\[
+    |H_x|=O(n^c)
+\]
+for a small constant \(c\), ideally close to \(1\).
+
+The encoding must therefore exploit repeated structure rather than explicitly
+store each recursion level.
+
+If the same relation recurs at every depth, then one stores the generating
+rule once and imposes a global fixed-point condition.
+
+\subsection{Toy Example: Meta-Binary Search}
+
+Consider a binary search that needs to determine whether the target belongs to
+the left region \(L\) or right region \(R\).
+
+Ordinarily one computes
+\[
+    D(I)=
+    \begin{cases}
+        0,&z\in L,\\
+        1,&z\in R.
+    \end{cases}
+\]
+
+Suppose \(D\) is unavailable.
+
+Meta-binary search replaces the query ``what is \(D(I)\)?'' by a second search
+whose target is the answer to that very directional question.
+
+Then the second search requires its own directional answer, producing
+
+\[
+    D_0
+    \leftarrow
+    D_1
+    \leftarrow
+    D_2
+    \leftarrow
+    \cdots.
+\]
+
+If every \(D_i\) is generated by the same local rule, the entire sequence may
+be described by a finite transition relation
+\[
+    D_{i+1}=T(D_i).
+\]
+
+Rather than expanding the sequence, introduce a global encoded state \(h\)
+satisfying
+\[
+    h=T(h).
+\]
+
+The toy problem is already in \(\mathbf{P}\), so this construction provides no
+new complexity-theoretic consequence.  Its purpose is only to isolate the
+mechanism:
+
+\[
+\boxed{
+\text{replace a missing oracle by recursive self-reference, then compress the
+self-reference globally}.
+}
+\]
+
+The relevant question is whether the same architecture can be transferred to
+an NP-complete problem without transferring the computational difficulty into
+the encoding.
+
+\subsection{From Meta-Binary Search to SAT}
+
+We now apply the same idea to Boolean satisfiability.
+
+Let
+\[
+    F
+\]
+be a CNF formula.
+
+A guided SAT procedure would like access to a directional predicate such as
+
+\[
+    O_F(u)=
+    \begin{cases}
+        0,&\text{a satisfying completion remains below }u0,\\
+        1,&\text{otherwise choose }u1.
+    \end{cases}
+\]
+
+As emphasized earlier, directly computing this oracle is equivalent to solving
+a restricted SAT question and therefore cannot simply be assumed.
+
+Instead, construct the oracle query itself as another SAT instance.
+
+That is, let
+\[
+    F_0:=F.
+\]
+
+The missing directional query for \(F_0\) is encoded as a new formula
+
+\[
+    F_1:=\mathcal{O}(F_0),
+\]
+
+where \(F_1\) represents the statement needed to determine the direction of
+the search on \(F_0\).
+
+But \(F_1\) is itself a SAT instance and therefore requires its own missing
+directional information.
+
+Construct
+
+\[
+    F_2:=\mathcal{O}(F_1),
+\]
+
+then
+
+\[
+    F_3:=\mathcal{O}(F_2),
+\]
+
+and recursively
+
+\[
+    F_{i+1}=\mathcal{O}(F_i).
+\]
+
+The resulting structure is
+
+\[
+\boxed{
+F_0
+\leftarrow
+F_1
+\leftarrow
+F_2
+\leftarrow
+F_3
+\leftarrow
+\cdots
+}
+\]
+
+where each SAT instance is intended to encode the oracle information required
+by the preceding SAT instance.
+
+\subsection{SAT Self-Oracularization}
+
+\begin{definition}[SAT Self-Oracularization]
+\label{def:sat-self-oracularization}
+A \emph{SAT self-oracularization} is a recursively defined family
+\[
+    F_{i+1}=\mathcal{O}(F_i)
+\]
+such that satisfying information for \(F_{i+1}\) determines a directional
+decision required to navigate the witness space of \(F_i\).
+\end{definition}
+
+The infinite tower is not intended to be explicitly materialized.
+
+Instead, the goal is to represent the entire recursion by a finite
+self-consistency object
+
+\[
+    H_F.
+\]
+
+The desired equivalence is
+
+\[
+\boxed{
+H_F
+\quad\equiv\quad
+\{F_0,F_1,F_2,\dots\}
+}
+\]
+
+in the sense that solving the consistency constraints encoded in \(H_F\)
+reveals the directional information that the infinite tower would provide.
+
+\subsection{Holographic SAT State}
+
+We therefore introduce a global state
+
+\[
+    H_F
+\]
+containing a polynomial-size representation of:
+
+\begin{enumerate}
+    \item the original formula \(F\);
+    \item the rule \(\mathcal{O}\) generating oracle-SAT instances;
+    \item the consistency relation connecting one oracle level to the next;
+    \item a finite representation of the self-similar recursion;
+    \item a decoding map producing a directional decision for \(F\).
+\end{enumerate}
+
+Formally, the target is a polynomial-time constructible object
+
+\[
+    H_F=\operatorname{Holo}(F,\mathcal{O})
+\]
+
+with
+
+\[
+    |H_F|\leq |F|^{O(1)}.
+\]
+
+The representation should satisfy a fixed-point relation of the form
+
+\[
+    H_F
+    =
+    \mathcal{G}(F,H_F).
+\]
+
+Thus SAT is not supplied with an external oracle.  It is supplied with an
+encoded representation of its own recursively defined oracle obligations.
+
+This is the NP analogue of meta-binary search.
+
+\subsection{The Meta-SAT Principle}
+
+The central construction can now be stated succinctly.
+
+\begin{principle}[Meta-SAT Principle]
+\label{principle:meta-sat}
+When a SAT procedure requires a directional oracle, encode the oracle query as
+another SAT instance of the same general type.  Repeat this construction
+recursively, and replace the resulting infinite self-reference by a finite
+polynomial-size fixed-point representation.
+\end{principle}
+
+Schematically,
+
+\[
+\boxed{
+\begin{array}{c}
+\text{SAT without oracle}\\[3pt]
+\downarrow\\[3pt]
+\text{SAT whose missing oracle is SAT}\\[3pt]
+\downarrow\\[3pt]
+\text{SAT whose missing oracle is SAT whose oracle is SAT}\\[3pt]
+\downarrow\\[3pt]
+\vdots\\[3pt]
+\downarrow\\[3pt]
+\text{finite holographic fixed point}.
+\end{array}
+}
+\]
+
+The intended effect is to transform missing direction into a global
+self-consistency condition.
+
+\subsection{Connection to the \(\Omega\) Property}
+
+This construction suggests a concrete interpretation of the global property
+\(\Omega\) introduced in Section~\ref{sec:phi-omega}.
+
+Rather than viewing \(\Omega\) as a scalar score, define
+
+\[
+    \Omega(F)
+\]
+to be the globally self-consistent state induced by the recursively
+self-oracularized SAT representation.
+
+In this interpretation,
+
+\[
+    \Omega(F)
+    =
+    \operatorname{Fix}
+    \bigl(
+        \mathcal{G}_F
+    \bigr),
+\]
+where
+\[
+    \mathcal{G}_F
+\]
+is the finite operator encoding one level of recursive oracle expansion.
+
+The direction function is then extracted by a decoder
+
+\[
+    D_F
+    =
+    \operatorname{Dec}(\Omega(F)).
+\]
+
+Thus the proposed chain becomes
+
+\[
+\boxed{
+F
+\longrightarrow
+H_F
+\longrightarrow
+\Omega(F)
+\longrightarrow
+D_F
+\longrightarrow
+\text{guided SAT search}.
+}
+\]
+
+This provides the first explicit architectural candidate for \(\Omega\).
+
+\subsection{Why Infinite Recursion Does Not Automatically Imply Infinite Size}
+
+The entire construction depends on one distinction:
+
+\[
+    \boxed{
+    \text{recursive depth}
+    \neq
+    \text{description length}.
+    }
+\]
+
+For example, the infinite sequence
+
+\[
+    1,1,1,1,\dots
+\]
+
+has infinite length but constant descriptive complexity.
+
+Likewise,
+
+\[
+    x_{i+1}=f(x_i)
+\]
+
+may describe infinitely many states using only the finite pair
+
+\[
+    (x_0,f).
+\]
+
+The self-oracularization program seeks an analogous compression for recursive
+SAT oracle dependencies.
+
+The challenge is therefore not to ``store infinity.''  The challenge is to
+find a finite relation whose fixed points exactly encode the consistency of
+the infinite dependency structure.
+
+\subsection{The Compression Lemma Target}
+
+The next mathematical target is the following.
+
+\begin{conjecture}[Holographic Compression Lemma]
+\label{conj:holographic-compression}
+For every SAT instance \(F\), the recursively generated self-oracle tower
+\[
+    F,\mathcal{O}(F),\mathcal{O}^2(F),\dots
+\]
+admits a representation
+\[
+    H_F
+\]
+of size
+\[
+    |H_F|\leq |F|^{c}
+\]
+for some uniform constant \(c\), such that global consistency of \(H_F\)
+determines the directional oracle answer required for \(F\).
+\end{conjecture}
+
+A stronger desired form would be
+
+\[
+    |H_F|=O(|F|)
+\]
+
+or
+
+\[
+    |H_F|=O(|F|\log |F|).
+\]
+
+The exact exponent is secondary at this stage.  The essential requirement is
+a uniform polynomial bound.
+
+\subsection{The Computation Lemma Target}
+
+Compression alone is insufficient.  The encoded fixed point must also be
+computable.
+
+\begin{conjecture}[Polynomial Fixed-Point Extraction]
+\label{conj:polynomial-fixed-point}
+There exists a deterministic polynomial-time procedure
+\[
+    \mathcal{H}
+\]
+such that
+\[
+    \mathcal{H}(H_F)
+\]
+computes a globally consistent state
+\[
+    \Omega(F)
+\]
+from which at least one correct directional SAT decision can be decoded.
+\end{conjecture}
+
+If both the compression and extraction conjectures are established, then the
+missing SAT oracle is no longer assumed externally.
+
+Instead,
+
+\[
+\boxed{\begin{gathered}
+\text{SAT constructs a finite representation of its own oracle dependency,}\\
+\text{then solves the resulting global consistency object.}
+\end{gathered}}
+\]
+
+\subsection{No-Oracle Closure}
+
+The intended construction may therefore be represented as
+
+\[
+    \boxed{
+    \text{oracle demand}
+    \rightarrow
+    \text{self-reference}
+    \rightarrow
+    \text{finite fixed point}
+    \rightarrow
+    \text{direction}.
+    }
+\]
+
+This is the key distinction from ordinary oracle computation.
+
+No external decision oracle is introduced.
+
+The oracle is replaced by a self-consistency condition internal to the
+NP-native construction.
+
+We call this property \emph{no-oracle closure}.
+
+\begin{definition}[No-Oracle Closure]
+\label{def:no-oracle-closure}
+An NP-native search construction has no-oracle closure if every directional
+query generated during the computation is recursively represented inside the
+same finite global state, and the final directional information is obtained by
+solving the consistency conditions of that state rather than by invoking an
+external decision oracle.
+\end{definition}
+
+\subsection{Section Target}
+
+The architectural target is therefore
+
+\[
+\boxed{
+\begin{aligned}
+&\text{Meta-binary search:}\\
+&\qquad
+\text{missing direction}
+\to
+\text{recursive self-direction}
+\to
+\text{finite fixed point},
+\\[6pt]
+&\text{Meta-SAT:}\\
+&\qquad
+\text{missing SAT oracle}
+\to
+\text{recursive SAT self-oracle}
+\to
+\text{holographic polynomial state}.
+\end{aligned}
+}
+\]
+
+The next section must make the operator
+\[
+    \mathcal{O}
+\]
+explicit, define the finite encoding
+\[
+    H_F,
+\]
+and prove that its size and fixed-point extraction cost are polynomial.
+
+
+\section{Iterated Function Systems as a Finite Model of Infinite Self-Oracularization}
+\label{sec:ifs-self-oracle}
+
+\subsection{Why Iterated Function Systems Appear Naturally}
+
+The previous section produced an infinite recursively self-oracular structure,
+\[
+    F_0,\ F_1,\ F_2,\dots,
+    \qquad
+    F_{i+1}=\mathcal{O}(F_i),
+\]
+and proposed that the entire tower should be replaced by a finite
+self-consistency object.
+
+Iterated Function Systems provide a natural mathematical language for exactly
+this type of phenomenon: a finite collection of transformations can generate
+an infinite self-similar object whose global form is characterized as a fixed
+point~\cite{Hutchinson1981}.
+
+Let \((X,d)\) be a complete metric space and let
+\[
+    \mathfrak{F}
+    =
+    \{f_1,f_2,\dots,f_r\}
+\]
+be a finite family of contractions
+\[
+    f_i:X\to X.
+\]
+
+The associated Hutchinson operator acts on subsets \(A\subseteq X\) by
+\[
+    \mathcal{H}_{\mathfrak{F}}(A)
+    :=
+    \bigcup_{i=1}^{r} f_i(A).
+\]
+
+Under the standard contractive hypotheses, there exists a unique compact
+attractor \(K\) satisfying
+\[
+    \boxed{
+    K
+    =
+    \mathcal{H}_{\mathfrak{F}}(K)
+    =
+    \bigcup_{i=1}^{r} f_i(K).
+    }
+\]
+
+Thus a finite collection of maps specifies an object containing the limit of
+arbitrarily deep compositions
+\[
+    f_{i_1}\circ f_{i_2}\circ\cdots\circ f_{i_k},
+    \qquad
+    k\to\infty.
+\]
+
+This is precisely the representational phenomenon required by the
+self-oracular construction.
+
+\subsection{Finite Rule, Infinite Structure}
+
+An IFS separates two quantities that must not be confused:
+
+\[
+    \text{depth of generated structure}
+    \qquad\text{and}\qquad
+    \text{size of its description}.
+\]
+
+Although the attractor contains information arising from arbitrarily long
+compositions, its generating description contains only the finite family
+
+\[
+    f_1,\dots,f_r.
+\]
+
+Hence
+
+\[
+\boxed{
+\text{infinite recursive depth}
+\not\Rightarrow
+\text{infinite description length}.
+}
+\]
+
+This gives a concrete mathematical realization of the ``holographic''
+principle introduced in Section~\ref{sec:meta-binary-search}.
+
+\subsection{A Binary IFS on Cantor Space}
+
+Boolean satisfiability is naturally associated with binary strings.  It is
+therefore useful to work not initially in Euclidean space, but in binary
+Cantor space
+
+\[
+    \Sigma^\omega
+    :=
+    \{0,1\}^{\mathbb{N}}.
+\]
+
+For distinct sequences \(x,y\in\Sigma^\omega\), let
+\[
+    \ell(x,y)
+\]
+be the index of their first differing bit, and define the ultrametric
+
+\[
+    d(x,y)
+    :=
+    2^{-\ell(x,y)}.
+\]
+
+Now define the prefix maps
+
+\[
+    P_0(x)=0x,
+    \qquad
+    P_1(x)=1x.
+\]
+
+These satisfy
+
+\[
+    d(P_b(x),P_b(y))
+    =
+    \frac12 d(x,y),
+    \qquad b\in\{0,1\}.
+\]
+
+Thus each prefix operation is a contraction with factor \(1/2\).
+
+This observation gives an immediate bridge between
+
+\[
+    \boxed{\text{binary witness trees}}
+\]
+
+and
+
+\[
+    \boxed{\text{contractive iterated function systems}}.
+\]
+
+A finite Boolean assignment
+\[
+    a_1a_2\cdots a_k
+\]
+corresponds to the composition
+
+\[
+    P_{a_1}
+    \circ
+    P_{a_2}
+    \circ
+    \cdots
+    \circ
+    P_{a_k}.
+\]
+
+Therefore an exponentially large binary search tree can be described through
+a constant-size family of generating maps.
+
+\subsection{From the Assignment Tree to a SAT-Conditioned IFS}
+
+The unrestricted binary IFS
+\[
+    \{P_0,P_1\}
+\]
+generates the entire binary space and therefore contains no SAT-specific
+directional information.
+
+The required construction must condition the maps on the formula.
+
+Let \(F\) be a CNF formula.  We introduce a finite formula-dependent family
+
+\[
+    \mathfrak{F}_F
+    =
+    \left\{
+        f^{(F)}_1,
+        f^{(F)}_2,
+        \dots,
+        f^{(F)}_r
+    \right\}
+\]
+acting on a polynomially describable metric state space
+
+\[
+    \mathcal{X}_F.
+\]
+
+A point
+\[
+    x\in\mathcal{X}_F
+\]
+may encode, for example,
+
+\[
+    x
+    =
+    (u,\sigma,\eta),
+\]
+where
+
+\[
+    u
+\]
+is a partial assignment,
+
+\[
+    \sigma
+\]
+is a compact formula state, and
+
+\[
+    \eta
+\]
+is the recursively generated oracle-consistency state.
+
+Each map
+\[
+    f_i^{(F)}
+\]
+represents one admissible local transformation of this NP-native state.
+
+The corresponding global operator is
+
+\[
+    \mathcal{H}_F(A)
+    :=
+    \bigcup_{i=1}^{r}
+    f_i^{(F)}(A).
+\]
+
+The proposed global state is the fixed attractor
+
+\[
+    \boxed{
+    K_F
+    =
+    \mathcal{H}_F(K_F).
+    }
+\]
+
+\subsection{Identification of \texorpdfstring{\(\Omega\)}{Omega}}
+
+We now obtain a concrete candidate for the abstract
+\(\Omega\)-property introduced earlier.
+
+\begin{definition}[IFS \(\Omega\)-State]
+\label{def:ifs-omega-state}
+For a SAT instance \(F\), define
+\[
+    \Omega(F)
+    :=
+    K_F,
+\]
+where \(K_F\) is the invariant set of the formula-conditioned IFS
+\(\mathfrak{F}_F\).
+\end{definition}
+
+The intended meaning is that \(K_F\) simultaneously represents all
+recursively consistent continuations generated by the finite self-oracular
+rule.
+
+Instead of explicitly storing
+
+\[
+    F_0,F_1,F_2,\dots,
+\]
+
+the construction stores a finite description of
+
+\[
+    \mathfrak{F}_F,
+\]
+while the fixed-point equation
+
+\[
+    K_F
+    =
+    \bigcup_i f_i^{(F)}(K_F)
+\]
+
+represents the closure of the complete recursion.
+
+Thus the earlier schematic identity
+
+\[
+    \Omega(F)
+    =
+    \operatorname{Fix}(\mathcal{G}_F)
+\]
+
+is realized by the IFS equation
+
+\[
+\boxed{
+\Omega(F)
+=
+\operatorname{Fix}(\mathcal{H}_F).
+}
+\]
+
+\subsection{Recursive Oracle Queries as IFS Addresses}
+
+Every infinite sequence of map indices
+
+\[
+    \alpha
+    =
+    i_1i_2i_3\cdots
+\]
+
+is an \emph{address} in the symbolic space of the IFS.
+
+Starting from any state \(x_0\), the sequence
+
+\[
+    f_{i_1}^{(F)}(x_0),
+\]
+\[
+    f_{i_1}^{(F)}
+    \circ
+    f_{i_2}^{(F)}(x_0),
+\]
+\[
+    f_{i_1}^{(F)}
+    \circ
+    f_{i_2}^{(F)}
+    \circ
+    f_{i_3}^{(F)}(x_0),
+\]
+and so forth, encodes arbitrarily deep recursive choices.
+
+This allows the oracle tower
+
+\[
+    F_0
+    \leftarrow
+    F_1
+    \leftarrow
+    F_2
+    \leftarrow
+    \cdots
+\]
+
+to be reinterpreted as an address-selection process in a single invariant
+global object.
+
+The recursion depth is moved from explicit storage into composition depth.
+
+The entire family of depths is represented at once by the attractor.
+
+\subsection{The Oracle Attractor}
+
+We therefore introduce the central object of this section.
+
+\begin{definition}[Oracle Attractor]
+\label{def:oracle-attractor}
+The \emph{oracle attractor} of a SAT instance \(F\) is a fixed invariant set
+\[
+    K_F
+\]
+of a finite formula-conditioned IFS such that consistent addresses of \(K_F\)
+encode recursively valid oracle answers for the SAT self-oracularization
+process.
+\end{definition}
+
+The desired decoder has the form
+
+\[
+    \operatorname{Dir}_F(K_F,u)
+    \in
+    \{0,1,\bot\},
+\]
+where
+
+\[
+    0
+\]
+means that the \(u0\) branch should be preserved,
+
+\[
+    1
+\]
+means that the \(u1\) branch should be preserved, and
+
+\[
+    \bot
+\]
+denotes a terminal or inconsistent state.
+
+If
+
+\[
+    \operatorname{Dir}_F(K_F,u)
+\]
+can be computed in polynomial time, the attractor acts as the internally
+generated directional oracle required by the previous sections.
+
+\subsection{Self-Oracularization as a Fractal Fixed Point}
+
+The conceptual chain now becomes
+
+\[
+\boxed{
+\begin{array}{c}
+\text{missing SAT oracle}
+\\[3pt]
+\downarrow
+\\[3pt]
+\text{SAT recursively asks SAT}
+\\[3pt]
+\downarrow
+\\[3pt]
+\text{repeated self-similar dependency}
+\\[3pt]
+\downarrow
+\\[3pt]
+\text{finite IFS}
+\\[3pt]
+\downarrow
+\\[3pt]
+\text{fixed attractor }K_F
+\\[3pt]
+\downarrow
+\\[3pt]
+\text{direction}.
+\end{array}
+}
+\]
+
+The infinite self-oracularization is therefore not treated as an infinite
+algorithm.
+
+It is treated as the invariant object of a finite dynamical system.
+
+\subsection{The Holographic Interpretation}
+
+The word \emph{holographic} can now be made less metaphorical.
+
+A small set of generating transformations
+
+\[
+    f_1^{(F)},\dots,f_r^{(F)}
+\]
+
+determines an arbitrarily detailed global structure.
+
+Every finite-depth view corresponds to a finite composition.
+
+The entire infinite closure is characterized by one fixed-point equation.
+
+Thus information is represented in three layers:
+
+\[
+\boxed{
+\begin{aligned}
+&\text{generator level:}
+&&
+\mathfrak{F}_F,
+\\
+&\text{global level:}
+&&
+K_F=\mathcal{H}_F(K_F),
+\\
+&\text{local query level:}
+&&
+\operatorname{Dir}_F(K_F,u).
+\end{aligned}
+}
+\]
+
+This is the proposed holographic architecture.
+
+\subsection{Description Complexity}
+
+The attractor itself need not be explicitly enumerated.
+
+The representation size is defined by the description of the generating
+system:
+
+\[
+    \operatorname{size}(K_F)
+    :=
+    \operatorname{size}(\mathfrak{F}_F).
+\]
+
+If the number of maps satisfies
+
+\[
+    r\leq |F|^{c_1}
+\]
+and each map has a description of length at most
+
+\[
+    |F|^{c_2},
+\]
+then
+
+\[
+    \operatorname{size}(\mathfrak{F}_F)
+    \leq
+    |F|^{c_1+c_2}.
+\]
+
+Thus the entire infinitely generated object has a polynomial-size
+description.
+
+A stronger target is
+
+\[
+    r=O(1)
+\]
+with map descriptions of size
+
+\[
+    O(|F|\log |F|),
+\]
+
+which would yield a near-linear holographic representation.
+
+\subsection{Why Compression Alone Is Not Enough}
+
+The IFS immediately supplies a language for finite description of infinite
+self-similarity.  The decisive problem is now shifted into the structure of
+the maps.
+
+The maps must satisfy four properties simultaneously:
+
+\[
+\boxed{
+\begin{aligned}
+&\text{(i) finite/poly-size description,}\\
+&\text{(ii) contractive or otherwise uniquely convergent dynamics,}\\
+&\text{(iii) SAT-faithful fixed-point semantics,}\\
+&\text{(iv) polynomial-time extraction of direction.}
+\end{aligned}
+}
+\]
+
+These are no longer vague requirements.  They define the exact mathematical
+lemmas needed by the construction.
+
+\subsection{IFS Compression Lemma Target}
+
+\begin{conjecture}[SAT--IFS Compression Lemma]
+\label{conj:sat-ifs-compression}
+There exists a polynomial-time transformation that maps every CNF formula
+\(F\) to a finite IFS
+\[
+    \mathfrak{F}_F
+\]
+whose description length satisfies
+
+\[
+    |\mathfrak{F}_F|
+    \leq
+    |F|^{O(1)},
+\]
+
+and whose invariant state \(K_F\) encodes the complete recursively
+self-oracular SAT dependency structure.
+\end{conjecture}
+
+This replaces the earlier abstract Holographic Compression Lemma by a specific
+dynamical-system formulation.
+
+\subsection{Contractivity Lemma Target}
+
+\begin{conjecture}[Uniform Contractivity]
+\label{conj:uniform-contractivity}
+The maps of \(\mathfrak{F}_F\) can be chosen so that there exists a uniform
+constant
+
+\[
+    0<\lambda<1
+\]
+
+with
+
+\[
+    d(f_i^{(F)}(x),f_i^{(F)}(y))
+    \leq
+    \lambda d(x,y)
+\]
+
+for every formula \(F\), every map \(f_i^{(F)}\), and all valid states
+\(x,y\in\mathcal{X}_F\).
+\end{conjecture}
+
+A uniform contraction factor is particularly useful because approximation to
+the invariant state then converges geometrically.
+
+If the initial error is \(E_0\), after \(k\) iterations the error is bounded
+schematically by
+
+\[
+    E_k
+    \leq
+    \lambda^k E_0.
+\]
+
+Thus accuracy
+
+\[
+    E_k\leq\varepsilon
+\]
+
+requires only
+
+\[
+    k
+    =
+    O\!\left(
+        \log\frac{1}{\varepsilon}
+    \right)
+\]
+
+iterations when \(\lambda\) is uniformly bounded away from \(1\).
+
+\subsection{Directional Decoding Lemma Target}
+
+The final bridge back to SAT is a decoder.
+
+\begin{conjecture}[Polynomial Directional Decoding]
+\label{conj:ifs-direction-decoding}
+There exists a deterministic polynomial-time procedure
+\[
+    \operatorname{Dir}
+\]
+such that, for every satisfiable formula \(F\) and every extendible partial
+assignment \(u\),
+
+\[
+    \operatorname{Dir}(F,K_F,u)
+\]
+
+returns a bit \(b\in\{0,1\}\) for which
+
+\[
+    ub
+\]
+still has at least one satisfying completion.
+\end{conjecture}
+
+If this conjecture holds, one may construct a full satisfying assignment in
+at most \(n\) directional steps.
+
+\subsection{The Complete IFS Route}
+
+The proposed algorithmic route is now
+
+\[
+\boxed{
+F
+\longmapsto
+\mathfrak{F}_F
+\longmapsto
+K_F
+\longmapsto
+b_1
+\longmapsto
+b_2
+\longmapsto
+\cdots
+\longmapsto
+b_n.
+}
+\]
+
+The resulting witness is
+
+\[
+    w^\star=b_1b_2\cdots b_n.
+\]
+
+If
+
+\[
+    |\mathfrak{F}_F|
+    \leq |F|^{O(1)},
+\]
+
+the attractor information needed by the decoder is computable to sufficient
+precision in polynomial time, and each directional bit is correct, then the
+complete procedure runs in polynomial time.
+
+The IFS therefore supplies a candidate realization of all three missing
+objects from the previous sections:
+
+\[
+\boxed{
+\begin{aligned}
+H_F
+&\equiv
+\mathfrak{F}_F,
+\\[4pt]
+\Omega(F)
+&\equiv
+K_F,
+\\[4pt]
+D_F
+&\equiv
+\operatorname{Dir}(F,K_F,\cdot).
+\end{aligned}
+}
+\]
+
+\subsection{The Seventh Principle}
+
+\begin{principle}[IFS Holographic Closure]
+\label{principle:ifs-holographic-closure}
+Represent recursive SAT self-oracularization not by explicitly unfolding the
+oracle tower, but as the invariant state of a finite formula-conditioned
+iterated function system.
+\end{principle}
+
+In its shortest form,
+
+\[
+\boxed{
+\text{infinite SAT recursion}
+\quad\longrightarrow\quad
+\text{finite IFS}
+\quad\longrightarrow\quad
+\text{global attractor}
+\quad\longrightarrow\quad
+\text{direction}.
+}
+\]
+
+The next stage must therefore define the actual maps
+\[
+    f_i^{(F)}
+\]
+and the state metric
+\[
+    d_F
+\]
+for Boolean satisfiability.
+
+
+\section{Fourier Holography and Global Spectral Closure}
+\label{sec:fourier-holography}
+
+\subsection{Why a Second Holographic Layer Is Needed}
+
+The iterated-function-system construction of
+Section~\ref{sec:ifs-self-oracle} provides a finite generative description of
+an infinitely recursive self-oracular structure.  However, a finite
+description alone does not yet provide an efficient method for extracting the
+global direction required by SAT.
+
+The next step is therefore to represent the fixed self-similar state in a
+basis in which global structure is explicitly distributed across a finite
+collection of spectral coefficients.
+
+This motivates a second layer of the construction:
+
+\[
+\boxed{
+\text{IFS holography}
+\quad+\quad
+\text{Fourier holography}.
+}
+\]
+
+The IFS layer compresses recursive depth.
+
+The Fourier layer reorganizes global dependence.
+
+\subsection{Fourier Representation of Boolean State Space}
+
+Let
+\[
+    f:\{-1,+1\}^{n}\to\mathbb{R}
+\]
+be any real-valued function defined on Boolean assignments.
+
+For every subset
+\[
+    S\subseteq[n],
+\]
+define the parity character
+
+\[
+    \chi_S(x)
+    :=
+    \prod_{i\in S} x_i.
+\]
+
+The Fourier--Walsh expansion of \(f\) is~\cite{ODonnell2014}
+
+\[
+    f(x)
+    =
+    \sum_{S\subseteq[n]}
+    \widehat f(S)\chi_S(x),
+\]
+with coefficients
+
+\[
+    \widehat f(S)
+    =
+    2^{-n}
+    \sum_{x\in\{-1,+1\}^{n}}
+    f(x)\chi_S(x).
+\]
+
+Thus a global Boolean landscape is represented by its spectral signature
+
+\[
+    \widehat f
+    =
+    \{\widehat f(S)\}_{S\subseteq[n]}.
+\]
+
+The low-order coefficients describe local or low-degree correlations.
+
+Higher-order coefficients encode larger-scale interactions among variables.
+
+The complete spectrum therefore contains a global description of the
+assignment landscape.
+
+\subsection{The SAT Landscape as a Signal}
+
+Let \(F\) be a CNF formula and define the Boolean satisfaction signal
+
+\[
+    s_F(x)
+    :=
+    \begin{cases}
+        1,&x\models F,\\
+        0,&x\not\models F.
+    \end{cases}
+\]
+
+Equivalently, one may use the signed signal
+
+\[
+    g_F(x)
+    :=
+    2s_F(x)-1.
+\]
+
+The SAT witness space is then represented spectrally by
+
+\[
+    \widehat g_F(S).
+\]
+
+The key observation is not that the full Fourier spectrum can be naively
+computed efficiently---it contains \(2^n\) coefficients---but that the
+spectral domain gives a precise language for asking whether the information
+required for direction can be compressed into a polynomially representable
+subset, recurrence, transform, or fixed-point relation.
+
+\subsection{Fourier Holographic State}
+
+We introduce the following object.
+
+\begin{definition}[Fourier Holographic State]
+\label{def:fourier-holographic-state}
+Let \(K_F\) denote the IFS oracle attractor associated with the SAT instance
+\(F\).  A \emph{Fourier holographic state} is a finite spectral
+representation
+\[
+    \widehat{\Omega}_F
+\]
+whose coefficients encode the global self-consistency relations of \(K_F\)
+and from which the directional information required by the SAT search can be
+decoded.
+\end{definition}
+
+The term \emph{holographic} refers to the intended distribution of global
+information across the spectral representation: no single local coefficient
+need encode the entire solution, while the collectively consistent spectrum
+represents the global state.
+
+The proposed chain is now
+
+\[
+\boxed{
+F
+\longrightarrow
+\mathfrak{F}_F
+\longrightarrow
+K_F
+\longrightarrow
+\widehat{\Omega}_F
+\longrightarrow
+D_F.
+}
+\]
+
+\subsection{Spectralization of the IFS}
+
+Suppose the formula-conditioned IFS contains maps
+
+\[
+    f_1^{(F)},\dots,f_r^{(F)}.
+\]
+
+The invariant state satisfies
+
+\[
+    K_F
+    =
+    \bigcup_{i=1}^{r}
+    f_i^{(F)}(K_F).
+\]
+
+Rather than reasoning directly about the recursively generated geometry,
+associate to \(K_F\) a signal or measure
+
+\[
+    \mu_F.
+\]
+
+For example, \(\mu_F\) may assign weight to recursively consistent states of
+the self-oracular construction.
+
+The IFS induces an operator
+
+\[
+    \mathcal{T}_F\mu
+    :=
+    \sum_{i=1}^{r}
+    p_i\,(f_i^{(F)})_\#\mu,
+\]
+where
+
+\[
+    p_i\geq 0,
+    \qquad
+    \sum_i p_i=1,
+\]
+
+and \((f_i^{(F)})_\#\mu\) denotes the pushforward measure.
+
+A stationary holographic state satisfies
+
+\[
+    \mu_F
+    =
+    \mathcal{T}_F\mu_F.
+\]
+
+Applying a Fourier transform gives a spectral fixed-point equation
+
+\[
+\boxed{
+\widehat{\mu}_F
+=
+\widehat{\mathcal{T}_F\mu_F}.
+}
+\]
+
+When the maps possess suitable algebraic form, the transformed equation may
+reduce geometric self-similarity to algebraic recurrences among Fourier
+coefficients.
+
+This is the intended role of Fourier holography.
+
+\subsection{Affine IFS Example}
+
+Suppose, for illustration, that the state space is embedded in
+\(\mathbb{R}^d\) and each IFS map has affine form
+
+\[
+    f_i(x)
+    =
+    A_i x+b_i.
+\]
+
+If \(\mu\) is a probability measure and
+
+\[
+    \widehat{\mu}(\xi)
+    :=
+    \int e^{-2\pi i\langle \xi,x\rangle}\,d\mu(x),
+\]
+
+then the pushforward relation gives
+
+\[
+    \widehat{(f_i)_\#\mu}(\xi)
+    =
+    e^{-2\pi i\langle \xi,b_i\rangle}
+    \widehat{\mu}(A_i^{T}\xi).
+\]
+
+Hence an invariant measure satisfying
+
+\[
+    \mu
+    =
+    \sum_i p_i(f_i)_\#\mu
+\]
+
+obeys
+
+\[
+\boxed{
+\widehat{\mu}(\xi)
+=
+\sum_i
+p_i
+e^{-2\pi i\langle \xi,b_i\rangle}
+\widehat{\mu}(A_i^{T}\xi).
+}
+\]
+
+The infinite geometric recursion has therefore become a functional equation
+in frequency space.
+
+This is the first explicit mathematical mechanism by which the IFS recursion
+may be globally closed without unfolding every depth.
+
+\subsection{Boolean Fourier Version}
+
+For SAT it is often more natural to remain entirely on the Boolean cube.
+
+Let
+
+\[
+    h_F:\{-1,+1\}^{m}\to\mathbb{R}
+\]
+
+encode the global state of the self-oracular construction.
+
+Its Walsh--Hadamard spectrum is
+
+\[
+    \widehat h_F(S)
+    =
+    2^{-m}
+    \sum_x
+    h_F(x)\chi_S(x).
+\]
+
+An NP-native update
+
+\[
+    h
+    \mapsto
+    \mathcal{G}_F(h)
+\]
+
+induces a spectral update
+
+\[
+    \widehat h
+    \mapsto
+    \widehat{\mathcal{G}_F(h)}.
+\]
+
+A holographic fixed point then satisfies
+
+\[
+\boxed{
+\widehat h^\star
+=
+\widehat{\mathcal{G}_F(h^\star)}.
+}
+\]
+
+The objective is to choose the state representation and update rule so that
+this transformed fixed-point equation closes over only polynomially many
+spectral statistics.
+
+\subsection{Spectral Closure}
+
+This motivates the central definition.
+
+\begin{definition}[Polynomial Spectral Closure]
+\label{def:polynomial-spectral-closure}
+A SAT holographic state admits \emph{polynomial spectral closure} if there
+exists a family of spectral observables
+
+\[
+    \Gamma_F
+    =
+    \{\gamma_1,\dots,\gamma_M\}
+\]
+
+with
+
+\[
+    M\leq |F|^{O(1)}
+\]
+
+such that:
+
+\begin{enumerate}
+    \item the values of all \(\gamma_i\) are computable from the current
+    holographic state in polynomial time;
+
+    \item one application of the self-oracular update transforms
+    \(\Gamma_F\) into a new collection determined solely by polynomial-time
+    functions of the current \(\Gamma_F\);
+
+    \item the directional decision required by SAT can be decoded from the
+    fixed point of these observables.
+\end{enumerate}
+\end{definition}
+
+Thus we do not require the entire \(2^n\)-coefficient Fourier spectrum.
+
+We require a polynomially closed spectral subsystem.
+
+This is the spectral analogue of the finite IFS description.
+
+\subsection{The Holographic Closure Equation}
+
+Combining the IFS and Fourier layers gives the central fixed-point system
+
+\[
+\boxed{
+\begin{aligned}
+K_F
+&=
+\mathcal{H}_F(K_F),
+\\[4pt]
+\mu_F
+&=
+\mathcal{T}_F\mu_F,
+\\[4pt]
+\widehat{\mu}_F
+&=
+\widehat{\mathcal{T}_F\mu_F}.
+\end{aligned}
+}
+\]
+
+The first line describes geometric self-similarity.
+
+The second describes invariant mass or consistency.
+
+The third describes global spectral closure.
+
+The proposed \(\Omega\)-object may therefore be refined as
+
+\[
+\boxed{
+\Omega(F)
+=
+\bigl(
+    \mathfrak{F}_F,
+    K_F,
+    \Gamma_F
+\bigr),
+}
+\]
+
+where \(\Gamma_F\) is the polynomially retained Fourier hologram.
+
+\subsection{Global Information from Distributed Coefficients}
+
+The purpose of the Fourier layer is not to assign a scalar energy to each
+assignment.
+
+Rather, it is to allow global dependence to be represented collectively.
+
+Suppose
+
+\[
+    \Gamma_F
+    =
+    (\gamma_1,\dots,\gamma_M).
+\]
+
+A directional decoder may take the form
+
+\[
+    D_F(u)
+    =
+    \operatorname{sign}
+    \left(
+        P_F(
+            u,
+            \gamma_1,\dots,\gamma_M
+        )
+    \right),
+\]
+
+where \(P_F\) is a polynomial-time computable expression.
+
+Then the SAT direction does not arise from one local clause score.
+
+It arises from interference among globally distributed spectral components.
+
+This gives a mathematically precise version of the holographic intuition.
+
+\subsection{Interference as Global Aggregation}
+
+Fourier transforms convert superposition in the original domain into
+coefficient addition in the frequency domain and convert convolution-type
+structure into multiplication.
+
+This is useful because many local constraints may contribute to the same
+global spectral mode.
+
+Schematically,
+
+\[
+    \text{local clause effects}
+    \longrightarrow
+    \text{spectral components}
+    \longrightarrow
+    \text{global interference pattern}.
+\]
+
+The desired \(\Omega\)-signal is therefore not necessarily stored at a single
+location.
+
+It may emerge only after aggregation:
+
+\[
+\boxed{
+\Omega
+=
+\text{globally consistent interference of polynomially encoded modes}.
+}
+\]
+
+\subsection{Fourier-Holographic Direction}
+
+We define the target object.
+
+\begin{definition}[Fourier-Holographic Directional Signal]
+\label{def:fourier-holographic-direction}
+A Fourier-holographic directional signal is a polynomial-time computable
+function
+
+\[
+    D_{\mathrm{FH}}(F,u,\Gamma_F)
+    \in
+    \{0,1,\bot\}
+\]
+
+such that, whenever \(u\) has at least one satisfying completion, the returned
+bit \(b\in\{0,1\}\) satisfies
+
+\[
+    \exists v
+    \quad
+    ubv\models F.
+\]
+\end{definition}
+
+The central claim required later is therefore not that Fourier analysis
+automatically solves SAT.
+
+The required theorem is much more specific:
+
+\[
+\boxed{\begin{gathered}
+\text{the self-oracular SAT IFS admits a polynomially closed spectral}\\
+\text{representation whose fixed point yields a correct directional bit}.
+\end{gathered}}
+\]
+
+\subsection{Polynomial Fourier Hologram Target}
+
+\begin{conjecture}[Polynomial Fourier Hologram]
+\label{conj:polynomial-fourier-hologram}
+For every CNF formula \(F\), there exists a polynomial-time constructible
+spectral state
+
+\[
+    \Gamma_F
+\]
+
+of size
+
+\[
+    |\Gamma_F|
+    \leq
+    |F|^{O(1)}
+\]
+
+such that \(\Gamma_F\) is closed under the SAT self-oracular IFS update and
+encodes sufficient global information to recover a solution-preserving
+direction.
+\end{conjecture}
+
+\subsection{Spectral Fixed-Point Extraction Target}
+
+\begin{conjecture}[Polynomial Spectral Fixed-Point Extraction]
+\label{conj:spectral-fixed-point-extraction}
+The fixed point of the polynomial spectral closure equations associated with
+\(F\) can be computed to the precision required for correct directional
+decoding in deterministic time
+
+\[
+    |F|^{O(1)}.
+\]
+\end{conjecture}
+
+This requirement is essential: a polynomial-size spectral representation is
+insufficient if obtaining its fixed point requires exponential precision or
+exponential iteration count.
+
+\subsection{Precision Separation Requirement}
+
+Suppose the decoder distinguishes two directions according to a real-valued
+spectral observable
+
+\[
+    \Delta_F(u).
+\]
+
+Correct polynomial-time decoding requires a separation margin
+
+\[
+    |\Delta_F(u)|
+    \geq
+    2^{-\operatorname{poly}(|F|)}
+\]
+
+whenever a strict directional decision is required.
+
+Then only polynomially many bits of precision are needed to determine the
+sign of \(\Delta_F(u)\).
+
+This produces another explicit proof obligation.
+
+\begin{conjecture}[Polynomial Spectral Gap]
+\label{conj:polynomial-spectral-gap}
+Whenever the Fourier-holographic decoder must choose between two distinct
+solution-preserving branches, its decisive spectral observable has magnitude
+at least
+\[
+    2^{-\operatorname{poly}(|F|)}.
+\]
+\end{conjecture}
+
+Without such a gap, an exponentially precise representation could hide the
+complexity inside numerical resolution.
+
+\subsection{IFS--Fourier Dual Closure}
+
+The full architecture now has two mutually reinforcing descriptions.
+
+The geometric description is
+
+\[
+    \boxed{
+    K_F
+    =
+    \bigcup_i f_i^{(F)}(K_F).
+    }
+\]
+
+The spectral description is
+
+\[
+    \boxed{
+    \Gamma_F
+    =
+    \mathcal{S}_F(\Gamma_F),
+    }
+\]
+
+where
+
+\[
+    \mathcal{S}_F
+\]
+
+is the finite spectral update induced by the IFS.
+
+The first explains how infinite recursive depth is generated.
+
+The second is intended to make global consistency algorithmically accessible.
+
+Thus
+
+\[
+\boxed{
+\text{IFS}
+=
+\text{finite generator of infinite structure},
+}
+\]
+
+while
+
+\[
+\boxed{
+\text{Fourier holography}
+=
+\text{finite global encoding of distributed structure}.
+}
+\]
+
+Together,
+
+\[
+\boxed{
+\text{recursive self-oracle}
+\to
+\text{IFS attractor}
+\to
+\text{Fourier hologram}
+\to
+\text{direction}.
+}
+\]
+
+\subsection{Relationship to the \(\Phi\)-Model}
+
+The \(\Phi\)-model of Section~\ref{sec:phi-omega} represents a witness
+landscape that is locally indistinguishable from blind pseudorandom search.
+
+The Fourier perspective suggests one possible way to violate this idealized
+blindness.
+
+Even if low-order local statistics resemble randomness, the global spectrum
+may contain structured correlations.
+
+Thus the desired exception is not necessarily
+
+\[
+    \text{``SAT has obvious local direction.''}
+\]
+
+Instead it may be
+
+\[
+\boxed{
+\text{SAT has a globally constrained spectral signature that survives local
+pseudorandomness.}
+}
+\]
+
+The role of \(\Omega\) is then precisely to expose this hidden global
+asymmetry.
+
+\subsection{The Eighth Principle}
+
+\begin{principle}[Fourier Holographic Closure]
+\label{principle:fourier-holographic-closure}
+Encode the invariant state of recursive SAT self-oracularization in a
+polynomially closed Fourier/Walsh representation, and extract search direction
+from globally distributed spectral consistency rather than from a purely
+local score.
+\end{principle}
+
+The combined construction is therefore
+
+\[
+\boxed{
+\begin{array}{c}
+F
+\\[2pt]
+\downarrow
+\\[2pt]
+\text{SAT-conditioned IFS }\mathfrak{F}_F
+\\[2pt]
+\downarrow
+\\[2pt]
+\text{oracle attractor }K_F
+\\[2pt]
+\downarrow
+\\[2pt]
+\text{Fourier hologram }\Gamma_F
+\\[2pt]
+\downarrow
+\\[2pt]
+\text{global signal }\Omega
+\\[2pt]
+\downarrow
+\\[2pt]
+\text{direction }D_F.
+\end{array}
+}
+\]
+
+The remaining task is now sharply defined:
+
+\[
+\boxed{\begin{gathered}
+\text{construct the concrete SAT-dependent maps, derive their spectral recurrence,}\\
+\text{and prove polynomial closure and directional correctness}.
+\end{gathered}}
+\]
+
+\section{The Concrete \texorpdfstring{\(\Omega\)}{Omega} Engine:
+Harmonic Self-Oracles, Weighted IFS, and Fourier Transfer}
+\label{sec:concrete-omega-engine}
+
+\subsection{Choice of Native NP-Complete Language}
+
+We now instantiate the abstract architecture of the preceding sections.
+
+The construction will operate on \textsc{3-SAT}.  This choice does not leave
+the NP-complete setting: \textsc{3-SAT} is itself NP-complete~\cite{GareyJohnson1979}.  Its advantage
+for the present construction is algebraic.  Every clause involves at most
+three Boolean variables, and therefore every individual clause contributes
+only constantly many Walsh--Fourier modes.
+
+Let
+\[
+    F=C_1\land C_2\land\cdots\land C_m
+\]
+be a 3-CNF formula over variables
+\[
+    x_1,\dots,x_n\in\{-1,+1\}.
+\]
+
+For every occurrence of \(x_j\) in clause \(C_c\), let
+\[
+    \sigma_{cj}\in\{-1,+1\}
+\]
+encode the sign of the satisfying literal, so that
+\[
+    \sigma_{cj}x_j=+1
+\]
+means that this literal is true.
+
+\subsection{Clause Violation Polynomials}
+
+For a clause \(C_c\) containing variables indexed by
+\[
+    I_c\subseteq[n],
+    \qquad
+    |I_c|\leq 3,
+\]
+define its violation indicator
+\[
+    v_c(x)
+    :=
+    \prod_{j\in I_c}
+    \frac{1-\sigma_{cj}x_j}{2}.
+\]
+
+Then
+\[
+    v_c(x)
+    =
+    \begin{cases}
+        1,&C_c\text{ is violated by }x,\\
+        0,&C_c\text{ is satisfied by }x.
+    \end{cases}
+\]
+
+The global violation energy is
+\[
+    E_F(x)
+    :=
+    \sum_{c=1}^{m}v_c(x).
+\]
+
+Hence
+\[
+    x\models F
+    \iff
+    E_F(x)=0.
+\]
+
+Because each \(v_c\) involves at most three variables, its Walsh expansion
+contains at most
+\[
+    2^{|I_c|}
+    \leq 8
+\]
+nonzero coefficients.
+
+Thus \(E_F\) itself has a sparse, polynomial-size description in the Walsh
+basis.
+
+This will be the local algebraic input to the global construction.
+
+\subsection{The Leaf Satisfaction Signal}
+
+Define
+\[
+    s_F(x)
+    :=
+    \prod_{c=1}^{m}\bigl(1-v_c(x)\bigr).
+\]
+
+Since each factor belongs to \(\{0,1\}\),
+\[
+    s_F(x)
+    =
+    \begin{cases}
+        1,&x\models F,\\
+        0,&x\not\models F.
+    \end{cases}
+\]
+
+The formula is satisfiable exactly when
+\[
+    \sum_{x\in\{-1,+1\}^{n}} s_F(x)>0.
+\]
+
+This signal is the boundary data of the self-oracular system.
+
+\subsection{The Exact Harmonic Oracle Field}
+
+Let
+\[
+    u=(u_1,\dots,u_k)\in\{-1,+1\}^{k}
+\]
+be a partial assignment to the first \(k\) variables in a current variable
+ordering.
+
+Define the \emph{harmonic oracle amplitude}
+\[
+    H_F(u)
+    :=
+    2^{-(n-k)}
+    \sum_{y\in\{-1,+1\}^{n-k}}
+    s_F(uy).
+\]
+
+Equivalently,
+\[
+    H_F(u)
+    =
+    \Pr_{Y}
+    \bigl[
+        F(uY)=1
+    \bigr],
+\]
+where \(Y\) is uniformly distributed over the unassigned variables.
+
+Thus
+\[
+    H_F(u)>0
+\]
+if and only if \(u\) has at least one satisfying completion.
+
+At full depth,
+\[
+    H_F(x)=s_F(x).
+\]
+
+At every internal prefix,
+\[
+\boxed{
+H_F(u)
+=
+\frac{
+    H_F(u,-1)
+    +
+    H_F(u,+1)
+}{2}.
+}
+\]
+
+This identity is exact.
+
+It converts satisfiability direction into a harmonic extension problem on the
+Boolean prefix tree.
+
+\subsection{Exact Direction from the Harmonic Field}
+
+Define
+\[
+    D_F(u)
+    :=
+    \begin{cases}
+        -1,
+        &H_F(u,-1)>0,
+        \\[3pt]
+        +1,
+        &H_F(u,-1)=0
+        \text{ and }
+        H_F(u,+1)>0,
+        \\[3pt]
+        \bot,
+        &H_F(u,-1)=H_F(u,+1)=0.
+    \end{cases}
+\]
+
+Then we immediately obtain the following.
+
+\begin{lemma}[Harmonic Direction Lemma]
+\label{lem:harmonic-direction}
+If
+\[
+    H_F(u)>0,
+\]
+then
+\[
+    D_F(u)\in\{-1,+1\}
+\]
+and the extended prefix
+\[
+    uD_F(u)
+\]
+has at least one satisfying completion.
+\end{lemma}
+
+\begin{proof}
+Since
+\[
+    H_F(u)
+    =
+    \frac{
+        H_F(u,-1)+H_F(u,+1)
+    }{2}
+    >0
+\]
+and both child values are nonnegative, at least one child has positive
+amplitude.  The definition of \(D_F\) selects such a child.
+\end{proof}
+
+Consequently, exact access to \(H_F\) gives a satisfying assignment in at most
+\(n\) directional steps.
+
+The problem has therefore been reduced to one sharply defined task:
+
+\[
+\boxed{
+\text{evaluate the harmonic oracle field without enumerating its leaves}.
+}
+\]
+
+\subsection{Meta-Binary Search Reappears}
+
+The recurrence
+\[
+    H_F(u)
+    =
+    \frac{
+        H_F(u,-1)+H_F(u,+1)
+    }{2}
+\]
+has precisely the form required by the meta-binary-search construction.
+
+To determine the direction at \(u\), the algorithm asks for the values of two
+children.
+
+Each child value is defined by two grandchildren.
+
+Each grandchild value is defined by two further descendants.
+
+Hence
+\[
+    H_F(u)
+\]
+is the finite-depth form of the recursively self-oracular dependency tower
+introduced in Section~\ref{sec:meta-binary-search}.
+
+The naive expansion contains
+\[
+    2^{n-k}
+\]
+leaves.
+
+The holographic objective is to represent the complete harmonic field without
+materializing this tree.
+
+\subsection{Fourier Identity for the Harmonic Field}
+
+Let the Walsh expansion of \(s_F\) be~\cite{ODonnell2014}
+\[
+    s_F(x)
+    =
+    \sum_{S\subseteq[n]}
+    \widehat{s_F}(S)\chi_S(x),
+\]
+where
+\[
+    \chi_S(x)
+    :=
+    \prod_{j\in S}x_j.
+\]
+
+Let
+\[
+    P_k:=\{1,\dots,k\}
+\]
+be the assigned prefix coordinates.
+
+Taking conditional expectation over the remaining variables annihilates every
+character containing an unassigned variable.  Therefore
+
+\[
+\boxed{
+H_F(u)
+=
+\sum_{S\subseteq P_k}
+\widehat{s_F}(S)\chi_S(u).
+}
+\]
+
+This identity is exact and provides the bridge from the recursive oracle field
+to Fourier holography.
+
+The directional query is therefore a spectral query.
+
+\subsection{Clause Factors in the Walsh Domain}
+
+Define the satisfaction factor of clause \(C_c\) by
+\[
+    g_c(x)
+    :=
+    1-v_c(x).
+\]
+
+Then
+\[
+    s_F(x)
+    =
+    \prod_{c=1}^{m}g_c(x).
+\]
+
+Let
+\[
+    \widehat g_c
+\]
+denote the Walsh coefficient vector of \(g_c\).
+
+Because \(C_c\) has width at most \(3\),
+\[
+    |\operatorname{supp}(\widehat g_c)|
+    \leq 8.
+\]
+
+Multiplication in the Boolean domain becomes XOR-convolution in the Walsh
+domain.  If
+\[
+    (a *_\oplus b)(S)
+    :=
+    \sum_{T\subseteq[n]}
+    a(T)b(S\triangle T),
+\]
+then
+
+\[
+\boxed{
+\widehat{s_F}
+=
+\widehat g_1
+*_\oplus
+\widehat g_2
+*_\oplus
+\cdots
+*_\oplus
+\widehat g_m.
+}
+\]
+
+Every individual convolution kernel is constant-sparse.
+
+The exponential object is generated by a polynomial number of constant-local
+operators.
+
+\subsection{Local Spectral Transfer Operators}
+
+For each clause \(C_c\), define the linear transfer operator
+\[
+    \mathcal{C}_c
+\]
+on spectral functions \(a:2^{[n]}\to\mathbb{R}\) by
+
+\[
+    (\mathcal{C}_c a)(S)
+    :=
+    \sum_{T\in\operatorname{supp}(\widehat g_c)}
+    \widehat g_c(T)\,
+    a(S\triangle T).
+\]
+
+Since
+\[
+    |\operatorname{supp}(\widehat g_c)|\leq 8,
+\]
+one output coefficient depends on at most eight input coefficients.
+
+Starting from
+\[
+    a_0=\delta_{\varnothing},
+\]
+define
+\[
+    a_c:=\mathcal{C}_c a_{c-1}.
+\]
+
+Then
+\[
+    a_m=\widehat{s_F}.
+\]
+
+Thus
+\[
+\boxed{
+\widehat{s_F}
+=
+\mathcal{C}_m
+\mathcal{C}_{m-1}
+\cdots
+\mathcal{C}_1
+\delta_{\varnothing}.
+}
+\]
+
+This composition is the first completely explicit form of the Fourier
+hologram.
+
+\subsection{The Fourier Hologram Circuit}
+
+\begin{definition}[Fourier Hologram Circuit]
+\label{def:fourier-hologram-circuit}
+The \emph{Fourier hologram circuit} of \(F\) is the straight-line operator
+description
+\[
+    \Gamma_F
+    :=
+    \bigl(
+        \mathcal{C}_1,
+        \dots,
+        \mathcal{C}_m
+    \bigr)
+\]
+together with the seed
+\[
+    \delta_{\varnothing}.
+\]
+\end{definition}
+
+The description length of \(\Gamma_F\) is
+\[
+    O(m+n)
+\]
+up to the bit complexity of variable indices and rational coefficients.
+
+Although \(\widehat{s_F}\) may have exponentially many nonzero coefficients,
+the operator circuit generating it is polynomial in the formula size.
+
+This is the first precise holographic compression:
+
+\[
+\boxed{
+\text{exponential spectrum}
+\quad\longleftarrow\quad
+\text{polynomial generator circuit}.
+}
+\]
+
+No coefficient table is stored.
+
+\subsection{Weighted IFS Representation of Spectral Expansion}
+
+The convolution circuit admits an equivalent path interpretation.
+
+For every clause \(c\) and every
+\[
+    T\in\operatorname{supp}(\widehat g_c),
+\]
+introduce a transition symbol
+\[
+    \tau=(c,T).
+\]
+
+A path
+\[
+    \pi=(T_1,\dots,T_m)
+\]
+determines the terminal frequency
+
+\[
+    S(\pi)
+    :=
+    T_1\triangle T_2\triangle\cdots\triangle T_m
+\]
+and weight
+
+\[
+    W(\pi)
+    :=
+    \prod_{c=1}^{m}
+    \widehat g_c(T_c).
+\]
+
+Then
+
+\[
+\boxed{
+\widehat{s_F}(S)
+=
+\sum_{\pi:S(\pi)=S}
+W(\pi).
+}
+\]
+
+The exponentially many convolution terms have become addresses of a
+finitely generated weighted symbolic system.
+
+\subsection{Contractive Address Maps}
+
+Choose an integer base
+\[
+    B\geq 16.
+\]
+
+Assign every local transition choice \(T\) an integer code
+\[
+    \iota(T)\in\{0,\dots,B-1\}.
+\]
+
+For every allowed local spectral transition define
+
+\[
+    \phi_T(z)
+    :=
+    \frac{z+\iota(T)}{B},
+    \qquad
+    z\in[0,1].
+\]
+
+Then
+
+\[
+    |\phi_T(z)-\phi_T(z')|
+    =
+    \frac1B |z-z'|.
+\]
+
+Hence every \(\phi_T\) is a contraction with common factor
+
+\[
+    \lambda=\frac1B<1.
+\]
+
+A complete convolution path is encoded by
+
+\[
+    z_\pi
+    =
+    \phi_{T_1}
+    \circ
+    \phi_{T_2}
+    \circ\cdots\circ
+    \phi_{T_m}(0).
+\]
+
+The address coordinate therefore stores an arbitrarily deep local-choice
+history in a self-similar metric representation.
+
+The algebraic labels
+\[
+    S(\pi)
+    \quad\text{and}\quad
+    W(\pi)
+\]
+are deterministic observables of the address.
+
+\subsection{The Weighted Spectral IFS}
+
+\begin{definition}[Weighted Spectral IFS]
+\label{def:weighted-spectral-ifs}
+The \emph{weighted spectral IFS} of \(F\) is the collection of contractive
+address maps \(\phi_T\), one for each local Walsh mode of every clause,
+equipped with the label updates
+\[
+    S\leftarrow S\triangle T
+\]
+and
+\[
+    W\leftarrow W\,\widehat g_c(T).
+\]
+\end{definition}
+
+The IFS does not explicitly enumerate its paths.
+
+It defines the complete spectral expansion through a finite transition rule.
+
+The Fourier hologram circuit and the weighted IFS are therefore two views of
+the same object:
+
+\[
+\boxed{
+\Gamma_F
+\;\equiv\;
+\text{finite operator view}
+\;\equiv\;
+\text{weighted IFS path view}.
+}
+\]
+
+\subsection{Directional Query Functional}
+
+For a prefix \(u\) assigning coordinates \(P_k\), define the query functional
+
+\[
+    Q_u(a)
+    :=
+    \sum_{S\subseteq P_k}
+    a(S)\chi_S(u).
+\]
+
+By the Fourier identity above,
+
+\[
+    H_F(u)
+    =
+    Q_u(\widehat{s_F}).
+\]
+
+Hence
+
+\[
+\boxed{
+H_F(u)
+=
+Q_u
+\left(
+    \mathcal{C}_m
+    \cdots
+    \mathcal{C}_1
+    \delta_{\varnothing}
+\right).
+}
+\]
+
+This is the exact algebraic form of the oracle query.
+
+\subsection{Backward Holographic Evaluation}
+
+Instead of propagating the exponentially large spectrum forward, move the
+query backward through the transfer operators.
+
+Let
+\[
+    \mathcal{C}_c^\ast
+\]
+be the adjoint operator with respect to the standard inner product on
+spectral functions.
+
+Then
+
+\[
+\begin{aligned}
+H_F(u)
+&=
+\left\langle
+    q_u,
+    \mathcal{C}_m
+    \cdots
+    \mathcal{C}_1
+    \delta_{\varnothing}
+\right\rangle
+\\
+&=
+\left\langle
+    \mathcal{C}_1^\ast
+    \cdots
+    \mathcal{C}_m^\ast
+    q_u,
+    \delta_{\varnothing}
+\right\rangle,
+\end{aligned}
+\]
+
+where
+\[
+    q_u(S)
+    =
+    \mathbf{1}_{S\subseteq P_k}\chi_S(u).
+\]
+
+Therefore only the value at the zero-frequency seed is ultimately required.
+
+The computational question becomes:
+
+\[
+\boxed{\begin{gathered}
+\text{Can the backward query state remain polynomially compressed}\\
+\text{under all adjoint clause transfers?}
+\end{gathered}}
+\]
+
+This is more precise than asking whether the full Fourier spectrum is sparse.
+
+\subsection{Holographic Quotient States}
+
+We now define the compression object.
+
+At transfer depth \(c\), let
+\[
+    q^{(c)}
+\]
+be the backward spectral query state after processing the suffix
+\[
+    C_{c+1},\dots,C_m.
+\]
+
+Two partial IFS paths \(\pi,\pi'\) are declared equivalent at depth \(c\) if
+they induce exactly the same action on every future directional query needed
+by the algorithm.
+
+Write
+
+\[
+    \pi\sim_c\pi'.
+\]
+
+Let
+\[
+    \mathcal{Q}_c
+\]
+be the quotient set of path states under \(\sim_c\).
+
+A quotient state stores the total interference amplitude of all paths in the
+same equivalence class.
+
+This is the point at which the IFS and Fourier layers meet:
+
+\[
+\boxed{
+\text{IFS merges by recursive state equivalence;}
+\qquad
+\text{Fourier merges by interference amplitude}.
+}
+\]
+
+\subsection{The \texorpdfstring{\(\Omega\)}{Omega} State}
+
+We can now give a concrete definition of the global object.
+
+\begin{definition}[Concrete \(\Omega\)-State]
+\label{def:concrete-omega}
+For a formula \(F\) and current prefix \(u\), define
+\[
+    \Omega_F(u)
+    :=
+    \Bigl(
+        \Gamma_F,
+        \{\mathcal{Q}_c\}_{c=0}^{m},
+        \{A_c(Q)\}_{Q\in\mathcal{Q}_c}
+    \Bigr),
+\]
+where
+\[
+    A_c(Q)
+\]
+is the aggregated Fourier interference amplitude of quotient state \(Q\) at
+depth \(c\).
+\end{definition}
+
+The decoder is
+
+\[
+    \operatorname{Dec}
+    \bigl(
+        \Omega_F(u)
+    \bigr)
+    =
+    H_F(u).
+\]
+
+The directional operator is then
+
+\[
+\boxed{
+D_\Omega(F,u)
+=
+\begin{cases}
+-1,&
+\operatorname{Dec}(\Omega_F(u,-1))>0,
+\\[3pt]
++1,&
+\operatorname{Dec}(\Omega_F(u,-1))=0
+\text{ and }
+\operatorname{Dec}(\Omega_F(u,+1))>0,
+\\[3pt]
+\bot,&\text{otherwise}.
+\end{cases}
+}
+\]
+
+This is a fully specified target interface.
+
+\subsection{The Central Compression Condition}
+
+The only reason the quotient representation can fail to be polynomial is if
+the number of genuinely distinct spectral future behaviors grows
+exponentially.
+
+Therefore define
+
+\[
+    q_F
+    :=
+    \max_{0\leq c\leq m}
+    |\mathcal{Q}_c|.
+\]
+
+The crucial structural condition is
+
+\[
+\boxed{
+q_F\leq |F|^{O(1)}.
+}
+\]
+
+If this holds uniformly, every backward transfer can be implemented over only
+polynomially many quotient amplitudes.
+
+This motivates the main engineering lemma.
+
+\begin{conjecture}[Holographic Quotient Lemma]
+\label{conj:holographic-quotient}
+For every 3-CNF formula \(F\), the weighted spectral IFS admits a
+direction-preserving quotient representation for which
+\[
+    \max_c|\mathcal{Q}_c|
+    \leq
+    |F|^{O(1)},
+\]
+and the quotient transition relation is constructible in deterministic
+polynomial time from the clause-incidence description of \(F\).
+\end{conjecture}
+
+This is the exact place where the proposed construction must outperform
+explicit decision diagrams, explicit Fourier tables, and naive variable
+elimination.
+
+\subsection{No Hidden Precision Cost}
+
+All clause Fourier coefficients are dyadic rationals with denominator at most
+\[
+    2^3.
+\]
+
+After processing \(m\) clauses, every exact path amplitude has denominator at
+most
+\[
+    2^{3m}.
+\]
+
+Hence exact arithmetic requires only
+\[
+    O(m)
+\]
+bits in the exponent/denominator representation per multiplicative path.
+
+Aggregated amplitudes may require an additional polynomial number of bits to
+store their exact integer numerators whenever quotient size is polynomial.
+
+Therefore, conditional on the Holographic Quotient Lemma, the construction
+does not require infinite real precision.
+
+\subsection{The Concrete Direction Algorithm}
+
+Assuming the quotient state can be maintained in polynomial size, the
+direction algorithm is now explicit.
+
+\begin{algorithm}
+\caption{Fourier--IFS Holographic SAT Direction}
+\label{alg:fourier-ifs-direction}
+\begin{algorithmic}[1]
+\Require 3-CNF formula \(F\), satisfiable prefix \(u\)
+\State Construct the clause-local Walsh kernels
+\[
+    \widehat g_1,\dots,\widehat g_m
+\]
+\State Construct the polynomial generator circuit
+\[
+    \Gamma_F=(\mathcal C_1,\dots,\mathcal C_m)
+\]
+\For{\(b\in\{-1,+1\}\)}
+    \State Build the directional query state \(q_{ub}\)
+    \State Propagate \(q_{ub}\) backward through the quotient transfer system
+    \State Extract
+    \[
+        h_b
+        \gets
+        Q_{ub}(\widehat{s_F})
+        =
+        H_F(ub)
+    \]
+\EndFor
+\If{\(h_{-1}>0\)}
+    \State \Return \(-1\)
+\ElsIf{\(h_{+1}>0\)}
+    \State \Return \(+1\)
+\Else
+    \State \Return \(\bot\)
+\EndIf
+\end{algorithmic}
+\end{algorithm}
+
+A complete solver repeats Algorithm~\ref{alg:fourier-ifs-direction} at most
+\(n\) times.
+
+\subsection{Conditional Complexity Bound}
+
+Let
+\[
+    Q(|F|)
+\]
+bound the number of holographic quotient states and let
+\[
+    R(|F|)
+\]
+bound the arithmetic cost per quotient transition.
+
+Then one directional query costs
+
+\[
+    O\!\left(
+        m\,Q(|F|)\,R(|F|)
+    \right).
+\]
+
+At most \(n\) directional queries are required.
+
+Therefore
+
+\[
+\boxed{
+T_{\mathrm{SAT}}(F)
+=
+O\!\left(
+    nm\,Q(|F|)\,R(|F|)
+\right).
+}
+\]
+
+If
+
+\[
+    Q(|F|)\leq |F|^{c}
+\]
+and
+
+\[
+    R(|F|)\leq |F|^{d},
+\]
+then
+
+\[
+    T_{\mathrm{SAT}}(F)
+    \leq
+    |F|^{O(1)}.
+\]
+
+The entire complexity question has therefore been concentrated into the size
+and constructibility of the holographic quotient.
+
+\subsection{Why the Construction Is NP-Native}
+
+Every object above is generated directly from the 3-SAT verification
+structure:
+
+\[
+    \text{clauses}
+    \to
+    \text{violation polynomials}
+    \to
+    \text{Walsh kernels}
+    \to
+    \text{weighted IFS}
+    \to
+    \text{harmonic oracle field}.
+\]
+
+No shortest-path solver, sorting oracle, matching algorithm, or other
+independent P-complete geometry is used to manufacture direction.
+
+The construction remains inside the Boolean witness space and its native
+spectral representation.
+
+Thus it satisfies the architectural restriction of
+Section~\ref{sec:np-native-constraint}.
+
+\subsection{Why the Construction Is Holographic}
+
+The same global information appears in four equivalent representations:
+
+\[
+\boxed{
+\begin{aligned}
+\text{leaf view:}
+&\quad
+s_F(x),
+\\[3pt]
+\text{harmonic view:}
+&\quad
+H_F(u),
+\\[3pt]
+\text{spectral view:}
+&\quad
+\widehat{s_F},
+\\[3pt]
+\text{IFS view:}
+&\quad
+\{(\pi,S(\pi),W(\pi))\}.
+\end{aligned}
+}
+\]
+
+The leaf view contains exponentially many assignments.
+
+The harmonic view contains the complete self-oracle tree.
+
+The spectral view contains exponentially many possible Fourier modes.
+
+The IFS view contains exponentially many paths.
+
+Yet all four arise from the same polynomial-size formula and the same
+constant-local clause transitions.
+
+The intended holographic quotient identifies repeated global behavior across
+these representations rather than storing any of them explicitly.
+
+\subsection{The Engineering Bottleneck}
+
+The construction is now concrete enough that its decisive mathematical
+question can be stated without metaphor:
+
+\[
+\boxed{
+\begin{array}{c}
+\text{Do the exponentially many weighted Fourier--IFS paths}\\
+\text{collapse into only polynomially many equivalence classes}\\
+\text{with respect to all SAT directional queries?}
+\end{array}
+}
+\]
+
+A positive answer supplies polynomial-time access to \(H_F(u)\).
+
+The Harmonic Direction Lemma then supplies a satisfying branch.
+
+Repeating this for at most \(n\) variables supplies a complete witness.
+
+Thus the chain is
+
+\[
+\boxed{
+\begin{array}{c}
+\text{Holographic Quotient Lemma}
+\\
+\Downarrow
+\\
+H_F(u)\text{ computable in polynomial time}
+\\
+\Downarrow
+\\
+D_F(u)\text{ computable in polynomial time}
+\\
+\Downarrow
+\\
+\text{3-SAT in polynomial time}
+\\
+\Downarrow
+\\
+\mathbf{P}=\mathbf{NP}.
+\end{array}
+}
+\]
+
+\subsection{Ninth Principle: Harmonic--Spectral Self-Oracle}
+
+\begin{principle}[Harmonic--Spectral Self-Oracle]
+\label{principle:harmonic-spectral-self-oracle}
+Use the exact conditional satisfying density
+\[
+    H_F(u)
+\]
+as the self-oracular directional field; represent its boundary signal by a
+polynomial clause-local Walsh transfer circuit; encode the exponentially many
+spectral expansion paths as a weighted contractive IFS; and recover direction
+through a polynomial-size interference quotient.
+\end{principle}
+
+This supplies explicit definitions for
+
+\[
+\boxed{
+\begin{aligned}
+f_i^{(F)}
+&\equiv
+\phi_T,
+\\
+\mathcal{S}_F
+&\equiv
+\mathcal{C}_m\cdots\mathcal{C}_1,
+\\
+\Gamma_F
+&\equiv
+(\mathcal{C}_1,\dots,\mathcal{C}_m),
+\\
+\Omega_F
+&\equiv
+\text{quotiented harmonic--spectral IFS state},
+\\
+D_F
+&\equiv
+\text{positivity comparison of child harmonic amplitudes}.
+\end{aligned}
+}
+\]
+
+The abstract architecture has therefore been reduced to a single explicit
+compression theorem.
+
+
+\section{Reflective Closure: Using the Construction to Certify Its Own Compression}
+\label{sec:reflective-closure}
+
+\subsection{The Recursive Proof Idea}
+
+The previous section reduced the construction to the Holographic Quotient
+Lemma: exponentially many Fourier--IFS paths must collapse into only
+polynomially many future-relevant equivalence classes.
+
+A natural question is whether the same recursive architecture used to solve
+SAT can also be used to establish the compression property required for its
+own correctness.
+
+This section introduces precisely that idea.
+
+The intended mechanism is not a circular argument of the form
+
+\[
+    \text{``the algorithm works because the algorithm says it works.''}
+\]
+
+Instead, the construction must produce a finite certificate of its own
+self-consistency, and that certificate must be checkable independently by a
+polynomial-time verifier.
+
+We call this mechanism \emph{reflective closure}.
+
+\subsection{Computation and Proof as Parallel State Spaces}
+
+Let
+
+\[
+    \mathcal{A}_F
+\]
+
+denote the holographic SAT algorithm associated with formula \(F\).
+
+Its computational state is
+
+\[
+    S_F.
+\]
+
+We introduce a second state space
+
+\[
+    P_F
+\]
+
+whose elements encode proof obligations about the behavior of \(S_F\).
+
+Typical obligations include
+
+\[
+\begin{aligned}
+&\text{the quotient transition is well defined},\\
+&\text{equivalent paths remain equivalent under future updates},\\
+&\text{the number of quotient classes remains polynomial},\\
+&\text{the directional decoder preserves satisfiable extensions},\\
+&\text{the arithmetic representation remains polynomially bounded}.
+\end{aligned}
+\]
+
+The complete reflective state is therefore
+
+\[
+    R_F
+    :=
+    (S_F,P_F).
+\]
+
+\subsection{The Reflective Update Operator}
+
+Suppose the computational state evolves under
+
+\[
+    S_{t+1}
+    =
+    \Phi_F(S_t).
+\]
+
+The proof state evolves simultaneously under an operator
+
+\[
+    P_{t+1}
+    =
+    \Pi_F(S_t,P_t).
+\]
+
+Define the combined update
+
+\[
+    \mathcal{R}_F(S,P)
+    :=
+    \bigl(
+        \Phi_F(S),
+        \Pi_F(S,P)
+    \bigr).
+\]
+
+A reflectively closed state satisfies
+
+\[
+\boxed{
+    (S^\star,P^\star)
+    =
+    \mathcal{R}_F(S^\star,P^\star).
+}
+\]
+
+Thus the same finite fixed-point architecture that closes the computational
+self-oracle is also used to close the proof obligations generated by that
+self-oracle.
+
+\subsection{Self-Application}
+
+The central idea can be written schematically as
+
+\[
+\boxed{
+\mathcal{A}
+\bigl(
+    \text{SAT instance}
+\bigr)
+}
+\]
+
+for ordinary execution, while correctness analysis applies the same
+structural engine to
+
+\[
+\boxed{
+\mathcal{A}
+\bigl(
+    \text{description of }\mathcal{A}
+\bigr).
+}
+\]
+
+More precisely, let
+
+\[
+    \langle\mathcal{A}\rangle
+\]
+
+denote a finite encoding of the algorithm.
+
+The reflective construction forms a verification instance
+
+\[
+    \operatorname{ProofInstance}
+    \bigl(
+        F,
+        \langle\mathcal{A}\rangle
+    \bigr),
+\]
+
+whose satisfying objects are certificates that the quotient dynamics of
+\(\mathcal{A}\) satisfy the required invariants on \(F\).
+
+The same holographic machinery is then applied to this verification instance.
+
+Hence the architecture becomes
+
+\[
+\boxed{
+\mathcal{A}
+\text{ solves SAT}
+\qquad\text{and}\qquad
+\mathcal{A}
+\text{ searches for a certificate of the invariants used by }\mathcal{A}.
+}
+\]
+
+\subsection{The Non-Circularity Condition}
+
+Self-reference alone does not prove correctness.
+
+To avoid logical circularity, the final certificate must be accepted by a
+verification relation
+
+\[
+    V_{\mathrm{cert}}
+    (F,\langle\mathcal{A}\rangle,C)
+\]
+
+whose correctness does not assume the theorem being certified.
+
+The reflective layer is therefore valid only if
+
+\[
+\boxed{
+V_{\mathrm{cert}}
+\text{ is polynomial-time computable and sound independently of }
+\mathcal{A}.
+}
+\]
+
+The role of \(\mathcal{A}\) is to \emph{find} the certificate.
+
+The role of \(V_{\mathrm{cert}}\) is to \emph{check} it.
+
+Thus
+
+\[
+\text{self-reference}
+\neq
+\text{self-justification}.
+\]
+
+Instead,
+
+\[
+\boxed{
+\text{self-reference}
++
+\text{independent certificate verification}
+=
+\text{reflective certification}.
+}
+\]
+
+\subsection{Certificate for the Quotient Lemma}
+
+For a given transfer depth \(c\), let
+
+\[
+    \mathcal{Q}_c
+\]
+
+be the proposed quotient states.
+
+A certificate
+
+\[
+    C_c
+\]
+
+must contain enough information to verify:
+
+\begin{enumerate}
+    \item every generated path state belongs to some quotient class;
+
+    \item all members of a quotient class induce identical future behavior
+    for the relevant harmonic directional queries;
+
+    \item the quotient transition relation is closed;
+
+    \item the number of quotient states satisfies
+    \[
+        |\mathcal{Q}_c|
+        \leq p(|F|)
+    \]
+    for a fixed polynomial \(p\);
+
+    \item aggregated Fourier amplitudes are updated exactly under the quotient
+    transition.
+\end{enumerate}
+
+The complete certificate is
+
+\[
+    C_F
+    :=
+    (C_0,C_1,\dots,C_m).
+\]
+
+If each \(C_c\) has polynomial size, then
+
+\[
+    |C_F|
+    \leq
+    |F|^{O(1)}.
+\]
+
+\subsection{Recursive Certification of Equivalence}
+
+The equivalence relation itself may be defined recursively.
+
+At terminal depth,
+
+\[
+    \pi\sim_m\pi'
+\]
+
+whenever the two paths contribute identically to the final harmonic query.
+
+At an earlier depth \(c\), define
+
+\[
+    \pi\sim_c\pi'
+\]
+
+whenever every admissible local continuation sends \(\pi\) and \(\pi'\) into
+equivalent states at depth \(c+1\), with matching aggregate spectral weights.
+
+Schematically,
+
+\[
+\boxed{
+\pi\sim_c\pi'
+\iff
+\forall T,\;
+\operatorname{Next}(\pi,T)
+\sim_{c+1}
+\operatorname{Next}(\pi',T).
+}
+\]
+
+Thus the quotient relation is itself recursively defined.
+
+This is exactly the type of object to which the holographic fixed-point
+architecture can be applied.
+
+\subsection{Proof IFS}
+
+Introduce a finite family of proof-state transformations
+
+\[
+    \mathfrak{P}_F
+    =
+    \{
+        p_1^{(F)},
+        \dots,
+        p_r^{(F)}
+    \}.
+\]
+
+Each map encodes one local proof obligation, such as checking one transition,
+one equivalence preservation rule, or one amplitude identity.
+
+The proof attractor
+
+\[
+    K_F^{\mathrm{proof}}
+\]
+
+satisfies
+
+\[
+\boxed{
+K_F^{\mathrm{proof}}
+=
+\bigcup_i
+p_i^{(F)}
+\left(
+K_F^{\mathrm{proof}}
+\right).
+}
+\]
+
+Thus the infinite recursive family of proof obligations is represented by a
+finite self-similar proof system.
+
+The computational and proof attractors coexist:
+
+\[
+\boxed{
+K_F^{\mathrm{comp}}
+\qquad\text{and}\qquad
+K_F^{\mathrm{proof}}.
+}
+\]
+
+\subsection{Fourier Representation of the Proof State}
+
+The same spectral machinery may be applied to the proof IFS.
+
+Let
+
+\[
+    \Gamma_F^{\mathrm{proof}}
+\]
+
+be the Fourier/Walsh transfer representation of the recursive proof state.
+
+Then the complete reflective hologram is
+
+\[
+\boxed{
+\Gamma_F^{\mathrm{refl}}
+=
+\left(
+    \Gamma_F^{\mathrm{comp}},
+    \Gamma_F^{\mathrm{proof}}
+\right).
+}
+\]
+
+Its fixed-point equation is
+
+\[
+    \Gamma_F^{\mathrm{refl}}
+    =
+    \mathcal{S}_F^{\mathrm{refl}}
+    \left(
+        \Gamma_F^{\mathrm{refl}}
+    \right).
+\]
+
+The first component computes directional SAT information.
+
+The second component computes a compressed certificate that the quotient
+representation used by the first component is closed and sound.
+
+\subsection{The Self-Certifying Quotient Condition}
+
+We can now state the desired reflective property.
+
+\begin{definition}[Self-Certifying Holographic Quotient]
+\label{def:self-certifying-quotient}
+A holographic quotient is \emph{self-certifying} if the same finite
+transition system that represents the quotient also generates a
+polynomial-size certificate \(C_F\) satisfying
+
+\[
+    V_{\mathrm{cert}}
+    (F,\Gamma_F,C_F)=1.
+\]
+\end{definition}
+
+The certificate verifier checks the quotient structure directly.
+
+The solver may discover the certificate recursively, but correctness is
+accepted only after verification.
+
+\subsection{Contradiction Strategy Inside the Reflective System}
+
+The proof-by-contradiction idea can now be embedded in the reflective state.
+
+Assume that the quotient width is superpolynomial.
+
+Then for some depth \(c\),
+
+\[
+    |\mathcal{Q}_c|
+    >
+    p(|F|)
+\]
+
+for every candidate polynomial bound \(p\).
+
+This implies the existence of too many mutually distinguishable future
+behavior signatures.
+
+The proof engine attempts to construct a distinguishing certificate
+
+\[
+    W(\pi,\pi')
+\]
+
+for each pair of allegedly inequivalent states.
+
+If the Fourier-harmonic observable system has only polynomially many
+independent future signatures, then sufficiently many path states must collide
+under all future observables.
+
+The reflective contradiction has the form
+
+\[
+\boxed{
+\begin{aligned}
+&\text{assume superpolynomially many quotient states}\\
+&\Downarrow\\
+&\text{obtain superpolynomially many pairwise distinguishable signatures}\\
+&\Downarrow\\
+&\text{apply the same holographic compression to the signature system}\\
+&\Downarrow\\
+&\text{two allegedly distinct signatures receive the same complete}\\
+&\text{future-observable representation}\\
+&\Downarrow\\
+&\pi\sim\pi'\\
+&\Downarrow\\
+&\bot.
+\end{aligned}
+}
+\]
+
+In this sense, the algorithm applies its own compression mechanism to the
+space of possible counterexamples to its compression mechanism.
+
+\subsection{Recursive Compression of Counterexamples}
+
+Let
+
+\[
+    \mathcal{W}_F
+\]
+
+denote the space of witnesses to failure of the Holographic Quotient Lemma.
+
+A witness may contain two paths
+
+\[
+    \pi,\pi'
+\]
+
+claimed to be inequivalent despite sharing a candidate compressed state.
+
+The verification question is
+
+\[
+    V_{\mathrm{fail}}
+    (F,\pi,\pi')=1
+\]
+
+if some future SAT query distinguishes them.
+
+Instead of enumerating future queries, the reflective construction recursively
+applies its own global query compression to
+
+\[
+    V_{\mathrm{fail}}.
+\]
+
+Thus
+
+\[
+\boxed{
+\text{compression theorem}
+\text{ is tested by compressing its own counterexample space}.
+}
+\]
+
+This is the recursive proof mechanism.
+
+\subsection{Reflective Fixed Point}
+
+Let
+
+\[
+    \mathcal{C}_F
+\]
+
+denote the computation transformer and
+
+\[
+    \mathcal{P}_F
+\]
+
+the proof transformer.
+
+Define
+
+\[
+    \mathcal{R}_F
+    :=
+    \mathcal{C}_F
+    \times
+    \mathcal{P}_F.
+\]
+
+The desired reflective state satisfies
+
+\[
+\boxed{
+R_F^\star
+=
+\mathcal{R}_F(R_F^\star).
+}
+\]
+
+The fixed point contains simultaneously:
+
+\[
+\begin{aligned}
+&\text{the compressed computational quotient},\\
+&\text{the directional harmonic data},\\
+&\text{the compressed counterexample space},\\
+&\text{the quotient certificate},\\
+&\text{the proof that the certificate verifier accepts}.
+\end{aligned}
+\]
+
+Only the last item must bottom out in primitive, independently checkable
+identities.
+
+Examples include exact rational equalities, finite transition-table
+consistency, clause-local Walsh identities, and explicit cardinality bounds.
+
+\subsection{Primitive Proof Base}
+
+To prevent infinite justificatory regress, reflective proof expansion must
+terminate semantically at a finite primitive base.
+
+Define
+
+\[
+    \mathcal{B}_{\mathrm{proof}}
+\]
+
+to contain only claims whose verification requires no recursive theorem
+invocation, such as:
+
+\[
+\begin{aligned}
+&\text{integer equality},\\
+&\text{rational equality},\\
+&\text{set membership in an explicitly given finite set},\\
+&\text{one-step transition correctness},\\
+&\text{one clause's Walsh expansion},\\
+&\text{one quotient-class representative check}.
+\end{aligned}
+\]
+
+The proof attractor compresses infinitely many recursive proof obligations,
+but every local leaf type belongs to this finite primitive base.
+
+Hence the logical structure is
+
+\[
+\boxed{
+\text{recursive proof graph}
+\longrightarrow
+\text{finite fixed-point certificate}
+\longrightarrow
+\text{primitive checks}.
+}
+\]
+
+\subsection{Reflective Soundness Target}
+
+The required theorem can now be stated.
+
+\begin{conjecture}[Reflective Soundness Theorem]
+\label{conj:reflective-soundness}
+For every 3-CNF formula \(F\), the reflective holographic system constructs
+in polynomial time a certificate \(C_F\) such that:
+
+\begin{enumerate}
+    \item \(C_F\) verifies the closure and soundness of the holographic
+    quotient used to evaluate \(H_F(u)\);
+
+    \item the verifier \(V_{\mathrm{cert}}\) runs in polynomial time;
+
+    \item acceptance of \(C_F\) implies the Holographic Quotient Lemma for
+    the instance \(F\);
+
+    \item verification reduces only to primitive proof-base checks and does
+    not assume the Holographic Quotient Lemma itself.
+\end{enumerate}
+\end{conjecture}
+
+\subsection{The Recursive Meme as a Mathematical Architecture}
+
+The full structure now has three recursive layers:
+
+\[
+\boxed{
+\begin{array}{c}
+\text{SAT asks SAT for direction}\\
+\downarrow\\
+\text{the recursion is compressed by Fourier--IFS}\\
+\downarrow\\
+\text{Fourier--IFS asks whether its compression is valid}\\
+\downarrow\\
+\text{the same Fourier--IFS mechanism compresses the proof obligations}\\
+\downarrow\\
+\text{a finite certificate is checked at the primitive base}.
+\end{array}
+}
+\]
+
+Thus the same architecture appears at both levels:
+
+\[
+\boxed{
+\text{algorithmic recursion}
+\qquad\text{and}\qquad
+\text{proof recursion}.
+}
+\]
+
+This is the intended self-similarity.
+
+\subsection{Tenth Principle: Reflective Holographic Closure}
+
+\begin{principle}[Reflective Holographic Closure]
+\label{principle:reflective-holographic-closure}
+Apply the same finite self-similar compression mechanism used for recursive
+SAT oracle dependencies to the recursively generated proof obligations of
+that compression mechanism, while requiring the resulting global certificate
+to reduce to independently verifiable primitive identities.
+\end{principle}
+
+In its shortest form,
+
+\[
+\boxed{\begin{gathered}
+\text{algorithm}\longrightarrow\text{algorithm applied to its own correctness obligations}\\
+\longrightarrow\text{finite fixed-point certificate}\longrightarrow\text{primitive verification}.
+\end{gathered}}
+\]
+
+This is the precise form of using the algorithm to prove that the algorithm
+works without replacing proof by circular assertion.
+
+
+\section{Executable Google Colab Implementation}
+\label{sec:colab-implementation}
+
+This section gives an executable implementation of the concrete
+Fourier--IFS self-oracular architecture.  The program accepts DIMACS CNF
+files directly in Google Colab and writes a text report containing the
+decision, a satisfying assignment when one is found, an independent model
+verification, and statistics for the finite quotient explored during the
+computation.
+
+The implementation uses the canonical residual CNF as an exact executable
+quotient state.  Therefore, whenever two recursive paths produce the same
+residual formula, the paths are merged and the previously computed result is
+reused.  Clause-local degree-one Walsh coefficients are used as a spectral
+branch-ordering signal.
+
+The implementation is exact whenever it returns \texttt{SAT} or
+\texttt{UNSAT}.  Its executable quotient provides a direct experimental
+realization of the state-merging mechanism developed above.  A general
+polynomial upper bound on the number of distinct quotient states is a
+separate mathematical complexity claim and is not inferred merely from the
+program's execution.
+
+\subsection{One-Cell Colab Program}
+
+\begin{lstlisting}[language=Python,basicstyle=\ttfamily\scriptsize,breaklines=true,columns=fullflexible]
+# OMEGA Fourier--IFS SAT Engine --- one-cell Google Colab implementation
+# Upload one or more DIMACS .cnf files. Produces and downloads one .txt per CNF.
+# Pure Python; no pip installs required.
+
+import sys
+import time
+from collections import defaultdict
+
+sys.setrecursionlimit(1_000_000)
+
+# Set to None for no time limit.
+TIME_LIMIT_SECONDS = 120
+
+def parse_dimacs_text(text):
+    nvars_declared = 0
+    clauses = []
+    pending = []
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("c"):
+            continue
+        if line.startswith("p"):
+            parts = line.split()
+            if len(parts) >= 4 and parts[1].lower() == "cnf":
+                nvars_declared = int(parts[2])
+            continue
+
+        for tok in line.split():
+            lit = int(tok)
+            if lit == 0:
+                clauses.append(tuple(pending))
+                pending = []
+            else:
+                pending.append(lit)
+
+    if pending:
+        clauses.append(tuple(pending))
+
+    max_var = max((abs(l) for c in clauses for l in c), default=0)
+    nvars = max(nvars_declared, max_var)
+    return nvars, canonicalize(clauses)
+
+
+def canonicalize(clauses):
+    out = set()
+    for clause in clauses:
+        s = set(clause)
+        if any(-l in s for l in s):
+            # Tautological clause is always satisfied.
+            continue
+        clean = tuple(sorted(s, key=lambda z: (abs(z), z < 0)))
+        out.add(clean)
+    return tuple(sorted(out, key=lambda c: (len(c), c)))
+
+
+def apply_literal(state, lit):
+    new_clauses = []
+    neg = -lit
+
+    for clause in state:
+        if lit in clause:
+            continue
+        if neg in clause:
+            reduced = tuple(x for x in clause if x != neg)
+            if len(reduced) == 0:
+                return None
+            new_clauses.append(reduced)
+        else:
+            new_clauses.append(clause)
+
+    return canonicalize(new_clauses)
+
+
+def unit_closure(state):
+    assignment = {}
+    current = state
+    reductions = 0
+
+    while True:
+        if current is None:
+            return None, None, reductions
+        if len(current) == 0:
+            return current, assignment, reductions
+        if any(len(c) == 0 for c in current):
+            return None, None, reductions
+
+        unit = next((c[0] for c in current if len(c) == 1), None)
+        if unit is None:
+            return current, assignment, reductions
+
+        var = abs(unit)
+        val = unit > 0
+        if var in assignment and assignment[var] != val:
+            return None, None, reductions
+        assignment[var] = val
+
+        current = apply_literal(current, unit)
+        reductions += 1
+
+
+def linear_walsh_bias(state):
+    """
+    Exact sum of degree-1 Walsh coefficients of the clause-satisfaction
+    factors g_c = 1 - product_j (1 - sigma_j x_j)/2.
+
+    For a clause of width k, variable x_j contributes sigma_j / 2^k.
+    This is only a branch-ordering signal; correctness does not depend on it.
+    """
+    bias = defaultdict(float)
+    occurrence = defaultdict(int)
+
+    for clause in state:
+        k = len(clause)
+        if k == 0:
+            continue
+        weight = 2.0 ** (-k)
+        for lit in clause:
+            var = abs(lit)
+            sigma = 1.0 if lit > 0 else -1.0
+            bias[var] += sigma * weight
+            occurrence[var] += 1
+
+    return bias, occurrence
+
+
+def choose_branch(state):
+    bias, occurrence = linear_walsh_bias(state)
+    variables = set(abs(l) for c in state for l in c)
+    if not variables:
+        return None, (True, False), 0.0
+
+    # Prefer high structural participation, then large Fourier linear bias.
+    var = max(
+        variables,
+        key=lambda v: (occurrence[v], abs(bias[v]), -v)
+    )
+    b = bias[var]
+    preferred = True if b >= 0 else False
+    return var, (preferred, not preferred), b
+
+
+def verify_model(clauses, model):
+    for clause in clauses:
+        ok = False
+        for lit in clause:
+            val = model.get(abs(lit), False)
+            if (lit > 0 and val) or (lit < 0 and not val):
+                ok = True
+                break
+        if not ok:
+            return False
+    return True
+
+
+class Timeout(Exception):
+    pass
+
+
+class OmegaSolver:
+    """
+    Executable finite prototype of the paper's recursive self-oracle +
+    holographic quotient idea.
+
+    Exact quotient key:
+        canonical residual CNF state.
+
+    Two paths reaching the same residual formula are merged in memo.
+    The linear Walsh signal orders branches; exact SAT correctness comes
+    from recursive self-oracular evaluation plus final verification.
+    """
+
+    def __init__(self, nvars, clauses, time_limit=TIME_LIMIT_SECONDS):
+        self.nvars = nvars
+        self.original = canonicalize(clauses)
+        self.memo = {}
+        self.seen_states = set()
+        self.start_time = None
+        self.time_limit = time_limit
+        self.stats = {
+            "recursive_calls": 0,
+            "quotient_states": 0,
+            "memo_hits": 0,
+            "branches": 0,
+            "unit_reductions": 0,
+            "max_depth": 0,
+        }
+
+    def _check_time(self):
+        if self.time_limit is not None:
+            if time.perf_counter() - self.start_time > self.time_limit:
+                raise Timeout()
+
+    def solve(self):
+        self.start_time = time.perf_counter()
+        try:
+            model = self._solve_state(self.original, 0)
+            elapsed = time.perf_counter() - self.start_time
+            if model is None:
+                return "UNSAT", None, elapsed
+
+            # Fill irrelevant/unassigned variables deterministically.
+            full = {v: model.get(v, False) for v in range(1, self.nvars + 1)}
+            if not verify_model(self.original, full):
+                raise RuntimeError("Internal error: produced model failed verification.")
+            return "SAT", full, elapsed
+
+        except Timeout:
+            elapsed = time.perf_counter() - self.start_time
+            return "UNKNOWN_TIMEOUT", None, elapsed
+
+    def _solve_state(self, state, depth):
+        self._check_time()
+        self.stats["recursive_calls"] += 1
+        self.stats["max_depth"] = max(self.stats["max_depth"], depth)
+
+        state = canonicalize(state)
+        self.seen_states.add(state)
+        self.stats["quotient_states"] = len(self.seen_states)
+
+        if state in self.memo:
+            self.stats["memo_hits"] += 1
+            cached = self.memo[state]
+            return None if cached is None else dict(cached)
+
+        reduced, forced, nred = unit_closure(state)
+        self.stats["unit_reductions"] += nred
+
+        if reduced is None:
+            self.memo[state] = None
+            return None
+
+        if len(reduced) == 0:
+            result = dict(forced)
+            self.memo[state] = tuple(sorted(result.items()))
+            return result
+
+        var, order, _bias = choose_branch(reduced)
+        if var is None:
+            result = dict(forced)
+            self.memo[state] = tuple(sorted(result.items()))
+            return result
+
+        self.stats["branches"] += 1
+
+        for val in order:
+            lit = var if val else -var
+            child = apply_literal(reduced, lit)
+            if child is None:
+                continue
+
+            sub = self._solve_state(child, depth + 1)
+            if sub is not None:
+                result = dict(forced)
+                result[var] = val
+                result.update(sub)
+                self.memo[state] = tuple(sorted(result.items()))
+                return result
+
+        self.memo[state] = None
+        return None
+
+
+def dimacs_model_line(model, nvars):
+    lits = []
+    for v in range(1, nvars + 1):
+        lits.append(str(v if model.get(v, False) else -v))
+    return "v " + " ".join(lits) + " 0"
+
+
+def solve_dimacs_text(text, filename="input.cnf", time_limit=TIME_LIMIT_SECONDS):
+    nvars, clauses = parse_dimacs_text(text)
+    solver = OmegaSolver(nvars, clauses, time_limit=time_limit)
+    status, model, elapsed = solver.solve()
+
+    lines = [
+        "OMEGA Fourier-IFS SAT Engine",
+        "============================",
+        f"input_file: {filename}",
+        f"status: {status}",
+        f"variables: {nvars}",
+        f"clauses_after_normalization: {len(clauses)}",
+        f"elapsed_seconds: {elapsed:.6f}",
+        "",
+        "Holographic quotient statistics",
+        "-------------------------------",
+    ]
+
+    for k, v in solver.stats.items():
+        lines.append(f"{k}: {v}")
+
+    lines += ["", "Result", "------"]
+
+    if status == "SAT":
+        verified = verify_model(clauses, model)
+        lines.append(f"verified: {str(verified).lower()}")
+        lines.append(dimacs_model_line(model, nvars))
+        lines.append("")
+        lines.append("assignment:")
+        for v in range(1, nvars + 1):
+            lines.append(f"x{v}={1 if model[v] else 0}")
+    elif status == "UNSAT":
+        lines.append("verified_model: n/a")
+        lines.append("No satisfying assignment exists according to the exact search.")
+    else:
+        lines.append("verified_model: n/a")
+        lines.append("Search stopped at the configured time limit.")
+        lines.append("Increase TIME_LIMIT_SECONDS or set it to None and run again.")
+
+    lines += [
+        "",
+        "Implementation note",
+        "-------------------",
+        "The executable quotient merges identical canonical residual CNF states.",
+        "The Walsh degree-1 signal is used for branch ordering.",
+        "The program is exact when it returns SAT or UNSAT; the final SAT model is",
+        "independently checked against the original normalized CNF.",
+        "This executable prototype does not by itself establish a polynomial",
+        "worst-case bound on the number of quotient states."
+    ]
+
+    return "\n".join(lines) + "\n"
+
+
+def colab_main():
+    from google.colab import files
+
+    print("Upload DIMACS .cnf file(s)...")
+    uploaded = files.upload()
+
+    cnf_names = [name for name in uploaded if name.lower().endswith(".cnf")]
+    if not cnf_names:
+        raise ValueError("No .cnf file uploaded.")
+
+    for name in cnf_names:
+        raw = uploaded[name]
+        text = raw.decode("utf-8", errors="replace")
+        report = solve_dimacs_text(text, filename=name)
+        out_name = name.rsplit(".", 1)[0] + "_omega_result.txt"
+
+        with open(out_name, "w", encoding="utf-8") as f:
+            f.write(report)
+
+        print("\n" + report)
+        files.download(out_name)
+
+
+# In Google Colab this runs automatically after pasting the cell.
+try:
+    import google.colab  # noqa: F401
+    colab_main()
+except ImportError:
+    pass
+
+\end{lstlisting}
+
+\subsection{Output Contract}
+
+For an input file \texttt{name.cnf}, the program creates
+\texttt{name\_omega\_result.txt}.  For satisfiable formulas the report
+contains a DIMACS-compatible model line
+\[
+    \texttt{v }\ell_1\ \ell_2\ \cdots\ \ell_n\ \texttt{0},
+\]
+together with a direct re-evaluation of every input clause.  For
+unsatisfiable formulas it returns \texttt{UNSAT}.  If the optional execution
+limit is reached, the output is \texttt{UNKNOWN\_TIMEOUT} rather than an
+incorrect SAT/UNSAT claim.
+
+The reported quotient statistics include the number of canonical residual
+states, memoization collisions, branch points, unit reductions, recursion
+depth, and total recursive calls.
+
+
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+The problem addressed in this manuscript is the $\mathbf{P}$ versus $\mathbf{NP}$ Millennium Prize Problem in its standard formulation: whether every language accepted by a nondeterministic polynomial-time computation is also decidable by a deterministic polynomial-time computation~\cite{CookClayPvsNP}.  The construction developed here connects witness search, universal program search, recursive self-oracularization, iterated function systems, Fourier--Walsh analysis, and reflective certification in a single NP-native architecture.
+
+Its organizing idea is that the obstacle in an NP-complete search can be expressed as missing directional information.  Rather than importing that direction from an external tractable problem, the construction generates it from the native verification structure itself.  The resulting pipeline is
+\[
+\boxed{
+F
+\longrightarrow
+\text{self-oracular SAT}
+\longrightarrow
+\mathfrak F_F
+\longrightarrow
+K_F
+\longrightarrow
+\Gamma_F
+\longrightarrow
+\Omega_F
+\longrightarrow
+D_F
+\longrightarrow
+w^\star.
+}
+\]
+
+For 3-SAT, the exact harmonic field
+\[
+H_F(u)
+=
+2^{-(n-|u|)}
+\sum_y s_F(uy)
+\]
+has the exact semantic property
+\[
+H_F(u)>0
+\quad\Longleftrightarrow\quad
+u\text{ is extendible to a satisfying assignment}.
+\]
+The clause factors have constant-local Walsh descriptions.  Their product becomes XOR-convolution in the spectral domain, and the exponentially many expansion terms are represented as paths of a finite weighted IFS.  The holographic quotient merges paths that are indistinguishable to every future harmonic directional query.
+
+The reflective layer applies the same closure mechanism to the quotient's own correctness obligations.  Its terminal certificate is checked using primitive finite identities: rational equalities, clause-local Walsh identities, transition consistency, and explicit quotient cardinality bounds.  This separates recursive certificate discovery from certificate verification.
+
+\subsection{Holographic closure theorem}
+
+\begin{theorem}[Polynomial Holographic Closure Implies $\mathbf{P}=\mathbf{NP}$]
+\label{thm:holographic-closure-pnp}
+Let $F$ be a 3-CNF formula of encoding length $N=|F|$.  Assume that the Fourier--IFS construction of Section~\ref{sec:concrete-omega-engine} admits, uniformly for every $F$ and every search prefix $u$, a direction-preserving quotient with at most $N^c$ states for a fixed constant $c$, that each quotient transition and exact amplitude update is computable using $N^d$ bit operations for a fixed constant $d$, and that the reflective certificate of Section~\ref{sec:reflective-closure} verifying these properties has size at most $N^e$ and is constructible and verifiable in time $N^f$ for fixed constants $e,f$.  Then 3-SAT is decidable by a deterministic polynomial-time algorithm.  Consequently,
+\[
+\boxed{\mathbf{P}=\mathbf{NP}}.
+\]
+\end{theorem}
+
+\begin{proof}
+For every partial assignment $u$, the Harmonic Direction Lemma gives
+\[
+H_F(u)>0
+\Longrightarrow
+\exists b\in\{-1,+1\}: H_F(ub)>0.
+\]
+The exact Fourier identity expresses each child value $H_F(ub)$ as the directional query functional applied to the Walsh spectrum generated by the clause-local transfer circuit.  By the assumed quotient bound, the backward holographic evaluation visits at most $N^c$ quotient states at each of the $m\leq N$ clause-transfer levels.  By the transition-cost hypothesis, one directional query is therefore computable in time
+\[
+O\!\left(N\cdot N^c\cdot N^d\right)
+=
+N^{O(1)}.
+\]
+At most $n\leq N$ directional queries are required to construct a complete assignment, so witness construction takes
+\[
+N^{O(1)}
+\]
+time.  The resulting assignment is checked directly against all clauses in polynomial time.  If neither child has positive harmonic amplitude, the current prefix has no satisfying completion; at the root this yields rejection.  The reflective certificate is, by hypothesis, produced and verified in polynomial time and therefore does not alter the polynomial bound.
+
+Hence 3-SAT belongs to $\mathbf{P}$.  Since 3-SAT is NP-complete by the standard Cook--Levin/Karp framework~\cite{Cook1971,Karp1972}, every language in $\mathbf{NP}$ polynomial-time reduces to a language in $\mathbf{P}$.  Therefore $\mathbf{NP}\subseteq\mathbf{P}$.  The reverse inclusion $\mathbf{P}\subseteq\mathbf{NP}$ is immediate, and thus
+\[
+\mathbf{P}=\mathbf{NP}.
+\]
+\end{proof}
+
+\begin{corollary}[One NP-complete closure suffices]
+\label{cor:one-closure-suffices}
+A uniform polynomial holographic closure for 3-SAT is sufficient to settle the Clay $\mathbf{P}$ versus $\mathbf{NP}$ problem in the affirmative.
+\end{corollary}
+
+\begin{proof}
+This is immediate from Theorem~\ref{thm:holographic-closure-pnp} and NP-completeness of 3-SAT.
+\end{proof}
+
+The executable implementation of Section~\ref{sec:colab-implementation} instantiates the finite quotient mechanism using canonical residual CNF states, clause-derived Walsh branch ordering, memoized state merging, and direct model verification.  It therefore provides an executable test bed for the state-merging dynamics appearing in the theorem.
+
+The framework can be summarized by the identity
+\[
+\boxed{
+\begin{array}{c}
+\text{recursive oracle demand}
+\longrightarrow
+\text{finite self-similar generator}
+\longrightarrow
+\text{spectral quotient}
+\\[3pt]
+\longrightarrow
+\text{direction}
+\longrightarrow
+\text{polynomial SAT search}
+\end{array}
+}
+\]
+The formal closure theorem above isolates the complete complexity-theoretic implication of that architecture and connects it directly to the official Clay formulation of the problem~\cite{CookClayPvsNP,ClayPvsNP}.
+
+
+\begin{thebibliography}{99}
+
+\bibitem{Cook1971}
+Stephen A. Cook.
+\newblock The complexity of theorem-proving procedures.
+\newblock In \emph{Proceedings of the Third Annual ACM Symposium on Theory of Computing}, pages 151--158, 1971.
+\newblock \href{https://doi.org/10.1145/800157.805047}{doi:10.1145/800157.805047}.
+
+\bibitem{Karp1972}
+Richard M. Karp.
+\newblock Reducibility among combinatorial problems.
+\newblock In Raymond E. Miller and James W. Thatcher, editors, \emph{Complexity of Computer Computations}, pages 85--103. Plenum Press, 1972.
+\newblock \href{https://doi.org/10.1007/978-1-4684-2001-2_9}{doi:10.1007/978-1-4684-2001-2\_9}.
+
+\bibitem{Levin1973}
+Leonid A. Levin.
+\newblock Universal sequential search problems.
+\newblock \emph{Problems of Information Transmission}, 9(3):265--266, 1973.
+
+\bibitem{GareyJohnson1979}
+Michael R. Garey and David S. Johnson.
+\newblock \emph{Computers and Intractability: A Guide to the Theory of NP-Completeness}.
+\newblock W. H. Freeman, 1979.
+
+\bibitem{Hutchinson1981}
+John E. Hutchinson.
+\newblock Fractals and self similarity.
+\newblock \emph{Indiana University Mathematics Journal}, 30(5):713--747, 1981.
+\newblock \href{https://doi.org/10.1512/iumj.1981.30.30055}{doi:10.1512/iumj.1981.30.30055}.
+
+\bibitem{AroraEtAl1998}
+Sanjeev Arora, Carsten Lund, Rajeev Motwani, Madhu Sudan, and Mario Szegedy.
+\newblock Proof verification and the hardness of approximation problems.
+\newblock \emph{Journal of the ACM}, 45(3):501--555, 1998.
+\newblock \href{https://doi.org/10.1145/278298.278306}{doi:10.1145/278298.278306}.
+
+\bibitem{ODonnell2014}
+Ryan O'Donnell.
+\newblock \emph{Analysis of Boolean Functions}.
+\newblock Cambridge University Press, 2014.
+\newblock \href{https://doi.org/10.1017/CBO9781139814782}{doi:10.1017/CBO9781139814782}.
+
+\bibitem{CookClayPvsNP}
+Stephen A. Cook.
+\newblock The P versus NP problem.
+\newblock Official Millennium Prize Problem Description, Clay Mathematics Institute, 2000.
+\newblock \url{https://www.claymath.org/wp-content/uploads/2022/02/MPPc.pdf}.
+
+\bibitem{ClayPvsNP}
+Clay Mathematics Institute.
+\newblock P vs NP, Millennium Prize Problems.
+\newblock \url{https://www.claymath.org/millennium/p-vs-np/}.
+\newblock Accessed September 22, 2026.
+
+\end{thebibliography}
+
+\end{document}
