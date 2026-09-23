@@ -6,6 +6,8 @@ on:
     paths:
       - 'P_equals_NP_Holographic_Paper.tex'
       - 'references.bib'
+      - 'omega_fourier_ifs_colab.py'
+      - 'README.md'
       - '.github/workflows/build-paper.yml'
   workflow_dispatch:
 
@@ -23,14 +25,23 @@ jobs:
         with:
           root_file: P_equals_NP_Holographic_Paper.tex
 
-      - name: Commit compiled PDF
+      - name: Build release bundle
+        run: |
+          zip -j OMEGA-Fourier-IFS-SAT-Engine_release.zip \
+            P_equals_NP_Holographic_Paper.pdf \
+            P_equals_NP_Holographic_Paper.tex \
+            references.bib \
+            omega_fourier_ifs_colab.py \
+            README.md
+
+      - name: Commit generated artifacts
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add P_equals_NP_Holographic_Paper.pdf
+          git add P_equals_NP_Holographic_Paper.pdf OMEGA-Fourier-IFS-SAT-Engine_release.zip
           if git diff --cached --quiet; then
-            echo "PDF unchanged"
+            echo "Generated artifacts unchanged"
           else
-            git commit -m "Rebuild compiled paper"
+            git commit -m "Rebuild paper and exact release bundle"
             git push
           fi
